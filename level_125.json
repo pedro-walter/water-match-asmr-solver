@@ -1,0 +1,213 @@
+{
+  "bottles": [
+    {
+      "number": 0,
+      "contents": [
+        "BLUE",
+        "GREY",
+        "CYAN",
+        "BLUE"
+      ]
+    },
+    {
+      "number": 1,
+      "contents": [
+        "GREEN",
+        "BLUE",
+        "PURPLE",
+        "BLUE"
+      ]
+    },
+    {
+      "number": 2,
+      "contents": [
+        "GREY",
+        "PURPLE",
+        "BLUE",
+        "GREY"
+      ]
+    },
+    {
+      "number": 3,
+      "contents": []
+    },
+    {
+      "number": 4,
+      "contents": [
+        "YELLOW",
+        "BLUE",
+        "RED",
+        "GREY"
+      ]
+    },
+    {
+      "number": 5,
+      "contents": [
+        "RED",
+        "YELLOW",
+        "GREY",
+        "YELLOW"
+      ]
+    },
+    {
+      "number": 6,
+      "contents": [
+        "PURPLE",
+        "GREY",
+        "GREY",
+        "GREEN"
+      ]
+    },
+    {
+      "number": 7,
+      "contents": [
+        "GREEN",
+        "YELLOW",
+        "RED",
+        "CYAN"
+      ]
+    },
+    {
+      "number": 8,
+      "contents": [
+        "RED",
+        "CYAN",
+        "GREEN",
+        "GREY"
+      ]
+    },
+    {
+      "number": 9,
+      "contents": [
+        "YELLOW",
+        "ORANGE",
+        "GREEN",
+        "CYAN"
+      ]
+    },
+    {
+      "number": 10,
+      "contents": [
+        "PURPLE",
+        "YELLOW",
+        "GREY",
+        "YELLOW"
+      ]
+    },
+    {
+      "number": 11,
+      "contents": [
+        "CYAN",
+        "ORANGE",
+        "YELLOW",
+        "ORANGE"
+      ]
+    },
+    {
+      "number": 12,
+      "contents": [
+        "ORANGE",
+        "YELLOW",
+        "CYAN",
+        "YELLOW"
+      ]
+    },
+    {
+      "number": 13,
+      "contents": [
+        "YELLOW",
+        "RED",
+        "GREY",
+        "PURPLE"
+      ]
+    },
+    {
+      "number": 14,
+      "contents": [
+        "GREY",
+        "RED",
+        "BLUE",
+        "ORANGE"
+      ]
+    },
+    {
+      "number": 15,
+      "contents": [
+        "GREEN",
+        "CYAN",
+        "YELLOW",
+        "RED"
+      ]
+    },
+    {
+      "number": 16,
+      "contents": [
+        "GREEN",
+        "ORANGE",
+        "GREEN",
+        "PURPLE"
+      ]
+    },
+    {
+      "number": 17,
+      "contents": [
+        "ORANGE",
+        "CYAN",
+        "RED",
+        "PURPLE"
+      ]
+    },
+    {
+      "number": 18,
+      "contents": [
+        "CYAN",
+        "BLUE",
+        "PURPLE",
+        "ORANGE"
+      ]
+    },
+    {
+      "number": 19,
+      "contents": [
+        "CYAN",
+        "CYAN",
+        "GREY",
+        "CYAN"
+      ]
+    }
+  ],
+  "row_layout": [
+    {
+      "bottle_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "bottle_indices": [
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "bottle_indices": [
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ]
+    }
+  ]
+}

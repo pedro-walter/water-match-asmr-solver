@@ -14,6 +14,7 @@ COLOR_MNEMONICS = {
     'B': Color.BLUE,      # Alternative for BLUE
     'C': Color.CYAN,
     '?': Color.UNKNOWN,
+    'J': Color.UNKNOWN,   # Alternative for UNKNOWN
 }
 
 def color_from_string(name: str) -> Color:

@@ -130,6 +130,9 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
         ui = ConsoleUI()
         solver = Solver(play_area)
 
+        # Keep a copy of the original puzzle to update only with revealed unknowns
+        original_play_area = play_area.clone()
+
         # Track revealed unknowns for partial saving
         # Format: {bottle_number: {position: color}}
         revealed_unknowns = {}
@@ -185,6 +188,18 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                 # Detailed message already shown by progress_callback
                 # Don't clear screen - let user see the error message
                 print()
+
+                # If NO_SOLUTION, offer to restore original puzzle and try again
+                if status == "NO_SOLUTION":
+                    restore_puzzle = ui.prompt_yes_no("Would you like to restore the puzzle to its original state and try again with different colors?")
+                    if restore_puzzle:
+                        # Restore from the original puzzle we cloned at start
+                        play_area = original_play_area.clone()
+                        solver = Solver(play_area)
+                        print()
+                        print("Puzzle restored to original state. Restarting solver...")
+                        print()
+                        continue  # Restart the solve loop
 
                 # Offer to show best partial solution
                 best_moves, completed_count, best_iteration = solver.get_best_partial_solution()
@@ -308,12 +323,18 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                         if bottle_number not in revealed_unknowns:
                             revealed_unknowns[bottle_number] = {}
 
-                        # Reveal from top downward
+                        # Reveal from top downward in BOTH current play_area and original_play_area
                         start_position = len(play_area.bottles[bottle_idx_with_unknown].contents) - 1
                         for offset in range(reveal_count):
                             position = start_position - offset
                             if position >= 0 and play_area.bottles[bottle_idx_with_unknown].contents[position] == Color.UNKNOWN:
                                 play_area.reveal_unknown(bottle_idx_with_unknown, position, revealed_color)
+
+                                # Also update original play area with the revealed color
+                                original_bottle = original_play_area.get_bottle_by_number(bottle_number)
+                                if original_bottle and position < len(original_bottle.contents):
+                                    original_bottle.contents[position] = revealed_color
+
                                 # Track this revelation
                                 revealed_unknowns[bottle_number][position] = revealed_color
 
@@ -322,10 +343,10 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                     else:
                         ui.show_message(f"Updated UNKNOWN to {revealed_color.name}", "success")
 
-                    # Save current state to original file (with all moves applied and unknowns revealed)
+                    # Save only the original puzzle with revealed unknowns to file
                     try:
-                        play_area.save_to_json(json_filepath)
-                        ui.show_message(f"Updated {json_filepath} with current progress", "success")
+                        original_play_area.save_to_json(json_filepath)
+                        ui.show_message(f"Updated {json_filepath} with revealed colors", "success")
                     except Exception as e:
                         ui.show_message(f"Warning: Could not save to file: {e}", "warning")
 

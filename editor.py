@@ -8,6 +8,8 @@ organize bottles into columns, and launch the solver.
 
 import re
 import sys
+import termios
+import tty
 from datetime import datetime
 from typing import Optional, List
 
@@ -26,6 +28,122 @@ def _show_msg(show_feedback, ui, msg, level):
         show_feedback(msg, level)
     else:
         ui.show_message(msg, level)
+
+
+def _read_key() -> str:
+    """Read a single keypress from stdin."""
+    try:
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+    except Exception:
+        return ""
+
+
+def _cursor_edit(play_area: PlayArea, ui: ConsoleUI):
+    """Interactive cursor-based bottle editing mode with slot-level control."""
+    # Get all bottles in a flat list (in row order if row layout, otherwise by number)
+    if play_area.row_layout:
+        bottles_in_order = []
+        for row in play_area.row_layout:
+            for bottle_num in row['bottle_indices']:
+                bottle = play_area.get_bottle_by_number(bottle_num)
+                if bottle:
+                    bottles_in_order.append(bottle)
+    else:
+        bottles_in_order = sorted(play_area.bottles, key=lambda b: b.number)
+
+    if not bottles_in_order:
+        print("\n✗ No bottles to edit")
+        return
+
+    # Cursor position: (bottle_index, slot_index 0=top, 3=bottom)
+    cursor_bottle = 0
+    cursor_slot = 0
+
+    COLOR_MNEMONICS = {'R': 'RED', 'P': 'PURPLE', 'A': 'GREY', 'G': 'GREEN',
+                      'Y': 'YELLOW', 'O': 'ORANGE', 'U': 'BLUE', 'C': 'CYAN', '?': 'UNKNOWN', 'J': 'UNKNOWN'}
+
+    def _render_with_cursor():
+        """Render bottles with cursor using UI methods."""
+        ui.clear_screen()
+        print(f"\033[1m=== Cursor Edit Mode ==={ui.move_count}\033[0m")
+        print("↑↓ (up/down): change slot | ← → (left/right): change bottle | RPAGYOUCJ: set color | SPACE: clear | q: quit")
+        print()
+
+        current_bottle = bottles_in_order[cursor_bottle]
+
+        # Call the appropriate render method with cursor info
+        if play_area.column_layout:
+            ui._render_columns(play_area)
+        elif play_area.row_layout:
+            ui._render_rows(play_area, current_bottle, cursor_slot)
+        else:
+            ui._render_bottles_row(play_area, current_bottle, cursor_slot)
+
+    while True:
+        _render_with_cursor()
+
+        # Read keypress
+        ch = _read_key()
+
+        if ch == 'q':
+            break
+        elif ch == 'h':
+            ui.clear_screen()
+            print("=== Cursor Edit Mode Help ===\n")
+            print("Navigation:")
+            print("  ↑ ↓ (up/down arrows): Move between slots (top to bottom)")
+            print("  ← → (left/right arrows): Move to adjacent bottle\n")
+            print("Editing:")
+            print("  R P A G Y O U C ?: Set selected slot to that color")
+            print("  Space: Clear selected slot\n")
+            print("Other:")
+            print("  q: Quit cursor edit mode\n")
+            print("Press any key to continue...")
+            sys.stdout.flush()
+            _read_key()
+
+        elif ch == '\x1b':
+            # Escape sequence - handle arrow keys
+            next1 = _read_key()
+            if next1 == '[':
+                next2 = _read_key()
+                if next2 == 'D':  # Left arrow
+                    cursor_bottle = (cursor_bottle - 1) % len(bottles_in_order)
+                elif next2 == 'C':  # Right arrow
+                    cursor_bottle = (cursor_bottle + 1) % len(bottles_in_order)
+                elif next2 == 'A':  # Up arrow
+                    cursor_slot = (cursor_slot + 1) % 4
+                elif next2 == 'B':  # Down arrow
+                    cursor_slot = (cursor_slot - 1) % 4
+
+        elif ch == ' ':
+            # Clear selected slot
+            current_bottle = bottles_in_order[cursor_bottle]
+            if cursor_slot < len(current_bottle.contents):
+                current_bottle.contents.pop(cursor_slot)
+            current_bottle.is_complete = False
+            play_area.update_locks()
+
+        elif ch.upper() in COLOR_MNEMONICS:
+            # Set selected slot to that color
+            color_name = COLOR_MNEMONICS[ch.upper()]
+            color = color_from_string(color_name)
+            current_bottle = bottles_in_order[cursor_bottle]
+
+            # Extend contents if needed
+            while len(current_bottle.contents) <= cursor_slot:
+                current_bottle.contents.append(Color.UNKNOWN)
+
+            current_bottle.contents[cursor_slot] = color
+            current_bottle.is_complete = False
+            play_area.update_locks()
 
 
 def run_editor(puzzle_file: Optional[str] = None):
@@ -62,6 +180,11 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
     selected_row = None  # Track which row to add to in row mode
     last_message = None  # Store last message to display
     show_help = [False]  # Use list so flag persists across loop iterations
+
+    # Default to row layout if no layout is set and puzzle is new (being created)
+    # Only auto-set if no bottles exist yet (brand new puzzle)
+    if not play_area.column_layout and not play_area.row_layout and not play_area.bottles:
+        play_area.row_layout = [{'bottle_indices': []}]
 
     def show_feedback(msg: str, level: str = "info"):
         """Show and store feedback message."""
@@ -135,8 +258,12 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
             elif user_input.lower() == 'help':
                 show_help[0] = True
 
+            elif user_input.lower() == 'cedit':
+                _cursor_edit(play_area, ui)
+                show_feedback("Exited cursor edit mode", "info")
+
             elif user_input.lower() == 'play':
-                _handle_play(play_area, ui)
+                _handle_play(play_area, ui, puzzle_file)
                 break
 
             elif user_input.lower().startswith('save'):
@@ -246,12 +373,12 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
 
 def _is_quick_set(user_input: str) -> bool:
     """Check if input matches quick-set pattern: digit + mnemonics."""
-    return bool(re.match(r'^(\d+)([RPAGYOUCBrpagyoucb?]+)$', user_input))
+    return bool(re.match(r'^(\d+)([RPAGYOUCBJrpagyoucbj?]+)$', user_input))
 
 
 def _handle_quick_set(user_input: str, play_area: PlayArea, ui: ConsoleUI, show_feedback=None):
     """Handle quick-set: e.g., '1RRRG' sets bottle 1 to RED/RED/RED/GREEN."""
-    match = re.match(r'^(\d+)([RPAGYOUCBrpagyoucb?]+)$', user_input)
+    match = re.match(r'^(\d+)([RPAGYOUCBJrpagyoucbj?]+)$', user_input)
     if not match:
         return
 
@@ -648,7 +775,7 @@ def _handle_save(user_input: str, play_area: PlayArea, ui: ConsoleUI, show_feedb
         raise ValueError(f"Failed to save: {e}")
 
 
-def _handle_play(play_area: PlayArea, ui: ConsoleUI, show_feedback=None):
+def _handle_play(play_area: PlayArea, ui: ConsoleUI, show_feedback=None, puzzle_file: Optional[str] = None):
     """Handle 'play' command - launch solver."""
     if not play_area.bottles:
         raise ValueError("Cannot play: puzzle has no bottles")
@@ -662,17 +789,23 @@ def _handle_play(play_area: PlayArea, ui: ConsoleUI, show_feedback=None):
     print("Launching solver...")
     print()
 
-    # Save to temp file and run solver
+    # Always use temp file, but if puzzle_file exists, update it after solver finishes
+    import os
     temp_filename = ".puzzle_temp.json"
     play_area.save_to_json(temp_filename)
 
     try:
         run_solver(temp_filename, delay=0.5, interactive=True, max_iterations=10000000)
+
+        # If we had an original puzzle file, update it with the revealed unknowns
+        if puzzle_file:
+            updated_play_area = PlayArea.load_from_json(temp_filename)
+            updated_play_area.save_to_json(puzzle_file)
+
     except Exception as e:
         _show_msg(show_feedback, ui, f"Solver error: {e}", "error")
     finally:
         # Clean up temp file
-        import os
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
 
@@ -719,6 +852,7 @@ def _print_help():
     print("  play           Launch solver with current puzzle")
     print()
     print("Other:")
+    print("  cedit          Cursor-based editing mode (arrow keys to move, mnemonics to set colors)")
     print("  help           Show this help")
     print("  q / quit       Exit editor")
     print()

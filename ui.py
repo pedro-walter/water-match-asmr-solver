@@ -3,7 +3,7 @@ import sys
 from typing import List, Tuple
 from models import Color, Bottle
 from play_area import PlayArea
-from utils import color_from_string
+from utils import color_from_string, COLOR_MNEMONICS
 
 # ANSI color codes
 COLOR_CODES = {
@@ -153,8 +153,8 @@ class ConsoleUI:
 
         return lines
 
-    def _render_bottles_row(self, play_area: PlayArea):
-        """Render all bottles in a row."""
+    def _render_bottles_row(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None):
+        """Render all bottles in a row. Optionally show cursor at cursor_bottle/cursor_slot."""
         bottles = play_area.bottles
 
         # Build the display line by line
@@ -181,9 +181,17 @@ class ConsoleUI:
                 if level < len(bottle.contents):
                     color = bottle.contents[level]
                     symbol = COLOR_SYMBOLS.get(color, "?")
-                    line += f"│ {symbol} │         "
                 else:
-                    line += "│    │         "
+                    symbol = " "
+
+                # Add cursor if this is the selected slot
+                if cursor_bottle is not None and cursor_slot is not None and bottle == cursor_bottle and level == cursor_slot:
+                    line += f"│ {symbol} │<        "
+                else:
+                    if level < len(bottle.contents):
+                        line += f"│ {symbol} │         "
+                    else:
+                        line += "│    │         "
             lines.append(line)
 
         # Bottom border
@@ -225,15 +233,16 @@ class ConsoleUI:
         else:
             print("└────┘")
 
-    def _render_rows(self, play_area: PlayArea):
-        """Render bottles organized in rows (stacked vertically)."""
+    def _render_rows(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None):
+        """Render bottles organized in rows (stacked vertically). Optionally show cursor."""
         if not play_area.row_layout:
             return
 
         for row_idx, row_info in enumerate(play_area.row_layout):
             bottle_indices = row_info['bottle_indices']
             if not bottle_indices:
-                # Skip empty rows
+                # Show empty row indicator instead of skipping
+                print(f"[Row {row_idx + 1}: empty]")
                 continue
 
             # Get bottles for this row, maintaining the order from bottle_indices
@@ -269,9 +278,17 @@ class ConsoleUI:
                     if level < len(bottle.contents):
                         color = bottle.contents[level]
                         symbol = COLOR_SYMBOLS.get(color, "?")
-                        line += f"│ {symbol} │   "
                     else:
-                        line += "│    │   "
+                        symbol = " "
+
+                    # Add cursor if this is the selected slot
+                    if cursor_bottle is not None and cursor_slot is not None and bottle == cursor_bottle and level == cursor_slot:
+                        line += f"│ {symbol} │<  "
+                    else:
+                        if level < len(bottle.contents):
+                            line += f"│ {symbol} │   "
+                        else:
+                            line += "│    │   "
                 lines.append(line)
 
             # Bottom border
@@ -334,11 +351,12 @@ class ConsoleUI:
         if unknown_count > 1:
             print("What color(s) are they?")
             print("Format: 'COLOR' or 'COUNT COLOR' or 'COLOR COUNT'")
-            print("Example: '3 RED' or 'RED 3' (means next 3 blocks are RED)")
+            print("Example: '3 RED' or 'RED 3' or '3 R' (means next 3 blocks are RED)")
         else:
             print("What color is it?")
 
         print("Available colors: RED, PURPLE, GREY, GREEN, YELLOW, ORANGE, BLUE, CYAN")
+        print("Or use mnemonics: R, P, A, G, Y, O, U, B, C")
         print()
 
         while True:
@@ -370,11 +388,15 @@ class ConsoleUI:
                     print(f"Cannot specify more than {unknown_count} blocks (only {unknown_count} unknowns revealed)")
                     continue
 
-                # Parse color
-                color = color_from_string(color_str)
+                # Parse color - check if it's a mnemonic first
+                color_str_upper = color_str.upper()
+                if color_str_upper in COLOR_MNEMONICS:
+                    color = COLOR_MNEMONICS[color_str_upper]
+                else:
+                    color = color_from_string(color_str)
 
                 if color == Color.UNKNOWN:
-                    print("Please enter an actual color, not UNKNOWN")
+                    print("Please enter an actual color, not UNKNOWN or J")
                     continue
 
                 return color, count
