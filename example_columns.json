@@ -1,0 +1,76 @@
+{
+  "columns": [
+    {
+      "skew": 1,
+      "bottles": [
+        {"contents": ["GREEN", "CYAN", "GREY", "RED"]},
+        {"contents": ["GREEN", "GREEN", "PURPLE", "PURPLE"]},
+        {"contents": ["GREY", "GREEN", "RED", "GREEN"]}
+      ]
+    },
+    {
+      "skew": 0.5,
+      "bottles": [
+        {
+          "contents": "YOO",
+          "locked": {"count": 6, "color": "ANY"}
+        },
+        {"contents": "PYOY"},
+        {
+          "contents": "YBBR",
+          "locked": {"count": 2, "color": "CYAN"}
+        }
+      ]
+    },
+    {
+      "bottles": [
+        {"contents": "YAUP"},
+        {"contents": "BARR"},
+        {"contents": "OGUR"}
+      ]
+    },
+    {
+      "bottles": [
+        {"contents": ""},
+        {
+          "contents": "OGOY",
+          "locked": {"count": 2, "color": "RED"}
+        },
+        {
+          "contents": "UGU",
+          "locked": {"count": 2, "color": "GREY"}
+        },
+        {"contents": "BAAU"}
+      ]
+    },
+    {
+      "bottles": [
+        {"contents": "CGGA"},
+        {"contents": "UPRG"},
+        {"contents": "CCCO"}
+      ]
+    },
+    {
+      "skew": 0.5,
+      "bottles": [
+        {
+          "contents": "UAC",
+          "locked": {"count": 6, "color": "ANY"}
+        },
+        {"contents": "CAUP"},
+        {
+          "contents": "AOC",
+          "locked": {"count": 2, "color": "BLUE"}
+        }
+      ]
+    },
+    {
+      "skew": 1,
+      "bottles": [
+        {"contents": "CCRP"},
+        {"contents": "PCAG"},
+        {"contents": "YYCA"}
+      ]
+    }
+  ]
+}

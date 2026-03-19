@@ -1,0 +1,439 @@
+import os
+import sys
+from typing import List, Tuple
+from models import Color, Bottle
+from play_area import PlayArea
+from utils import color_from_string
+
+# ANSI color codes
+COLOR_CODES = {
+    Color.RED: "\033[91m",
+    Color.PURPLE: "\033[95m",
+    Color.GREY: "\033[90m",
+    Color.GREEN: "\033[92m",
+    Color.YELLOW: "\033[93m",
+    Color.ORANGE: "\033[38;5;208m",
+    Color.BLUE: "\033[94m",
+    Color.CYAN: "\033[96m",
+    Color.UNKNOWN: "\033[37m",  # White
+}
+
+RESET = "\033[0m"
+BOLD = "\033[1m"
+
+# Color symbols using colored blocks
+COLOR_SYMBOLS = {
+    Color.RED: "🟥",
+    Color.PURPLE: "🟪",
+    Color.GREY: "⬜",
+    Color.GREEN: "🟩",
+    Color.YELLOW: "🟨",
+    Color.ORANGE: "🟧",
+    Color.BLUE: "🟦",
+    Color.CYAN: "🩵 ",  # Cyan heart (no cyan square emoji exists)
+    Color.UNKNOWN: "❓",
+}
+
+
+class ConsoleUI:
+    """Console UI for displaying the water sort puzzle."""
+
+    def __init__(self):
+        self.move_count = 0
+        self.bottle_width = 8  # Width of a bottle display including borders
+        self.bottle_height = 7  # Height of a bottle display (label + borders + 4 content)
+
+    def clear_screen(self):
+        """Clear the terminal screen."""
+        os.system('clear' if os.name != 'nt' else 'cls')
+
+    def render_game(self, play_area: PlayArea, message: str = ""):
+        """
+        Display the complete game state.
+
+        Args:
+            play_area: The PlayArea to render
+            message: Optional message to display
+        """
+        self.clear_screen()
+
+        print(f"{BOLD}=== Water Sort Puzzle ==={RESET}")
+        print(f"Move #{self.move_count}")
+        print()
+
+        if message:
+            print(message)
+            print()
+
+        # Use column layout if available, otherwise horizontal layout
+        if play_area.column_layout:
+            self._render_columns(play_area)
+        else:
+            self._render_bottles_row(play_area)
+
+        print()
+
+    def _render_columns(self, play_area: PlayArea):
+        """Render bottles in vertical column layout with skew offsets."""
+        if not play_area.column_layout:
+            return
+
+        # Calculate positions for each bottle
+        bottle_positions = {}  # Maps bottle_number to (row_start, col_index)
+        max_row = 0
+
+        for col_idx, column_info in enumerate(play_area.column_layout):
+            skew = column_info['skew']
+            bottle_indices = column_info['bottle_indices']
+
+            # Calculate row offset from skew (skew of 1.0 = 4 content rows)
+            skew_offset = int(skew * 8)
+
+            for bottle_position, bottle_num in enumerate(bottle_indices):
+                # Each bottle takes 7 rows, bottles stack downward
+                row_start = skew_offset + (bottle_position * self.bottle_height)
+                bottle_positions[bottle_num] = (row_start, col_idx)
+                max_row = max(max_row, row_start + self.bottle_height)
+
+        # Create grid: list of lines, each line has slots for each column
+        num_columns = len(play_area.column_layout)
+        grid = [[' ' * self.bottle_width for _ in range(num_columns)] for _ in range(max_row)]
+
+        # Place each bottle in the grid
+        for bottle in play_area.bottles:
+            if bottle.number not in bottle_positions:
+                continue
+
+            row_start, col_idx = bottle_positions[bottle.number]
+            is_locked = play_area.is_bottle_locked(bottle.number)
+
+            # Generate bottle lines
+            bottle_lines = self._get_bottle_lines(bottle, is_locked)
+
+            # Place in grid
+            for line_offset, line_text in enumerate(bottle_lines):
+                grid[row_start + line_offset][col_idx] = line_text
+
+        # Render grid
+        for row in grid:
+            print('  '.join(row))
+
+    def _get_bottle_lines(self, bottle: Bottle, is_locked: bool) -> list:
+        """Get the 7 lines for displaying a bottle."""
+        lines = []
+
+        # Line 0: Label (two spaces after #XX in both cases)
+        if is_locked:
+            label = f"  #{bottle.number} 🔒"
+        else:
+            label = f"  #{bottle.number}   "
+        if bottle.number < 10:
+            label += " "
+        lines.append(label)
+
+        # Line 1: Top border
+        lines.append("┌────┐  ")
+
+        # Lines 2-5: Content (4 levels from top to bottom)
+        for level in range(3, -1, -1):
+            if level < len(bottle.contents):
+                color = bottle.contents[level]
+                symbol = COLOR_SYMBOLS.get(color, "?")
+                lines.append(f"│ {symbol} │  ")
+            else:
+                lines.append("│    │  ")
+
+        # Line 6: Bottom border
+        if bottle.is_complete:
+            lines.append("└────┘ ✓")
+        else:
+            lines.append("└────┘  ")
+
+        return lines
+
+    def _render_bottles_row(self, play_area: PlayArea):
+        """Render all bottles in a row."""
+        bottles = play_area.bottles
+
+        # Build the display line by line
+        lines = []
+
+        # Header line with bottle numbers (two spaces after #XX)
+        header = ""
+        for bottle in bottles:
+            is_locked = play_area.is_bottle_locked(bottle.number)
+            lock_icon = "  🔒" if is_locked else ""
+            header += f"#{bottle.number}  {lock_icon}      "
+        lines.append(header)
+
+        # Top border
+        border_top = ""
+        for _ in bottles:
+            border_top += "┌────┐         "
+        lines.append(border_top)
+
+        # Content lines (4 levels from top to bottom)
+        for level in range(3, -1, -1):
+            line = ""
+            for bottle in bottles:
+                if level < len(bottle.contents):
+                    color = bottle.contents[level]
+                    symbol = COLOR_SYMBOLS.get(color, "?")
+                    line += f"│ {symbol} │         "
+                else:
+                    line += "│    │         "
+            lines.append(line)
+
+        # Bottom border
+        border_bottom = ""
+        for bottle in bottles:
+            if bottle.is_complete:
+                border_bottom += "└────┘ ✓       "
+            else:
+                border_bottom += "└────┘         "
+        lines.append(border_bottom)
+
+        # Print all lines
+        for line in lines:
+            print(line)
+
+    def render_bottle(self, bottle: Bottle, is_locked: bool = False):
+        """
+        Display a single bottle vertically.
+
+        Args:
+            bottle: The bottle to render
+            is_locked: Whether the bottle is locked
+        """
+        lock_text = " 🔒" if is_locked else ""
+        print(f"Bottle #{bottle.number}{lock_text}")
+        print("┌────┐")
+
+        # Display from top to bottom (index 3 to 0)
+        for i in range(3, -1, -1):
+            if i < len(bottle.contents):
+                color = bottle.contents[i]
+                symbol = COLOR_SYMBOLS.get(color, "?")
+                print(f"│ {symbol} │")
+            else:
+                print("│    │")
+
+        if bottle.is_complete:
+            print("└────┘ ✓")
+        else:
+            print("└────┘")
+
+    def render_move(self, from_idx: int, to_idx: int, play_area: PlayArea):
+        """
+        Display the game state after a move.
+
+        Args:
+            from_idx: Source bottle index
+            to_idx: Target bottle index
+            play_area: The PlayArea after the move
+        """
+        self.move_count += 1
+
+        from_bottle = play_area.bottles[from_idx]
+        to_bottle = play_area.bottles[to_idx]
+
+        message = f"{BOLD}Move #{self.move_count}:{RESET} Bottle #{from_bottle.number} → Bottle #{to_bottle.number}"
+        self.render_game(play_area, message)
+
+    def prompt_for_revealed_color(self, bottle_number: int = None, unknown_count: int = 1) -> tuple:
+        """
+        Prompt the user to identify revealed UNKNOWN color(s).
+
+        Args:
+            bottle_number: The bottle number where the unknown is revealed
+            unknown_count: Number of consecutive unknowns being revealed
+
+        Returns:
+            Tuple of (Color, count) - the color and how many blocks of that color
+        """
+        print()
+        if bottle_number is not None:
+            if unknown_count > 1:
+                print(f"{BOLD}🔍 {unknown_count} UNKNOWN colors revealed in Bottle #{bottle_number}!{RESET}")
+            else:
+                print(f"{BOLD}🔍 UNKNOWN color revealed in Bottle #{bottle_number}!{RESET}")
+        else:
+            if unknown_count > 1:
+                print(f"{BOLD}🔍 {unknown_count} UNKNOWN colors revealed!{RESET}")
+            else:
+                print(f"{BOLD}🔍 UNKNOWN color revealed!{RESET}")
+
+        if unknown_count > 1:
+            print("What color(s) are they?")
+            print("Format: 'COLOR' or 'COUNT COLOR' or 'COLOR COUNT'")
+            print("Example: '3 RED' or 'RED 3' (means next 3 blocks are RED)")
+        else:
+            print("What color is it?")
+
+        print("Available colors: RED, PURPLE, GREY, GREEN, YELLOW, ORANGE, BLUE, CYAN")
+        print()
+
+        while True:
+            try:
+                user_input = input("> ").strip().upper()
+                parts = user_input.split()
+
+                # Try to parse count and color
+                count = 1
+                color_str = user_input
+
+                if len(parts) == 2:
+                    # Could be "COUNT COLOR" or "COLOR COUNT"
+                    if parts[0].isdigit():
+                        count = int(parts[0])
+                        color_str = parts[1]
+                    elif parts[1].isdigit():
+                        color_str = parts[0]
+                        count = int(parts[1])
+                elif len(parts) == 1:
+                    # Just color, count defaults to 1
+                    color_str = parts[0]
+
+                # Validate count
+                if count < 1:
+                    print("Count must be at least 1")
+                    continue
+                if count > unknown_count:
+                    print(f"Cannot specify more than {unknown_count} blocks (only {unknown_count} unknowns revealed)")
+                    continue
+
+                # Parse color
+                color = color_from_string(color_str)
+
+                if color == Color.UNKNOWN:
+                    print("Please enter an actual color, not UNKNOWN")
+                    continue
+
+                return color, count
+
+            except ValueError:
+                print(f"Invalid input. Please try again.")
+                print("Format: 'COLOR' or 'COUNT COLOR' or 'COLOR COUNT'")
+
+    def show_message(self, msg: str, level: str = "info"):
+        """
+        Display a status message.
+
+        Args:
+            msg: The message to display
+            level: Message level (info, success, error, warning)
+        """
+        if level == "success":
+            print(f"{COLOR_CODES[Color.GREEN]}{BOLD}{msg}{RESET}")
+        elif level == "error":
+            print(f"{COLOR_CODES[Color.RED]}{BOLD}{msg}{RESET}")
+        elif level == "warning":
+            print(f"{COLOR_CODES[Color.YELLOW]}{BOLD}{msg}{RESET}")
+        else:
+            print(msg)
+
+    def show_solution_summary(self, moves: List[Tuple[int, int]], play_area: PlayArea):
+        """
+        Display a summary of the solution.
+
+        Args:
+            moves: List of (from_idx, to_idx) moves
+            play_area: The PlayArea instance
+        """
+        print()
+        print(f"{BOLD}Solution Summary:{RESET}")
+        print(f"Total moves: {len(moves)}")
+        print()
+
+        for i, (from_idx, to_idx) in enumerate(moves, 1):
+            from_bottle = play_area.bottles[from_idx]
+            to_bottle = play_area.bottles[to_idx]
+            print(f"{i}. Bottle #{from_bottle.number} → Bottle #{to_bottle.number}")
+
+    def prompt_continue(self, message: str = "Press Enter to continue (or 's' to save)...") -> str:
+        """
+        Prompt the user to continue or save.
+
+        Returns:
+            's' if user wants to save, empty string otherwise
+        """
+        response = input(message).strip().lower()
+        return response
+
+    def prompt_yes_no(self, message: str) -> bool:
+        """
+        Prompt the user for a yes/no answer.
+
+        Args:
+            message: The question to ask
+
+        Returns:
+            True for yes, False for no
+        """
+        while True:
+            response = input(f"{message} (y/n): ").strip().lower()
+            if response in ['y', 'yes']:
+                return True
+            elif response in ['n', 'no']:
+                return False
+            else:
+                print("Please answer 'y' or 'n'")
+
+    def show_completion(self, move_count: int):
+        """Show puzzle completion message."""
+        print()
+        print(f"{COLOR_CODES[Color.GREEN]}{BOLD}🎉 Puzzle solved in {move_count} moves!{RESET}")
+        print()
+
+    def show_progress(self, iteration: int, queue_size: int, explored: int, status: str):
+        """
+        Show solver progress.
+
+        Args:
+            iteration: Current iteration number
+            queue_size: Number of states in queue
+            explored: Number of states explored
+            status: Current status (SEARCHING, SOLVED, UNKNOWN_REVEALED, TIMEOUT, NO_SOLUTION)
+        """
+        if status == "SEARCHING":
+            # Clear line and show progress
+            print(f"\r⏳ Searching... Iteration: {iteration:,} | Queue: {queue_size:,} | Explored: {explored:,}", end="", flush=True)
+        elif status == "SOLVED":
+            # Clear the progress line and show success
+            print(f"\r✓ Solution found after {iteration:,} iterations (explored {explored:,} states)          ")
+        elif status == "UNKNOWN_REVEALED":
+            # Clear the progress line and show that an unknown was found
+            print(f"\r🔍 Unknown color found after {iteration:,} iterations (explored {explored:,} states)      ")
+        elif status == "TIMEOUT":
+            print()  # New line after progress
+            print()
+            print(f"{COLOR_CODES[Color.YELLOW]}{BOLD}⏱️  TIMEOUT{RESET}")
+            print(f"The solver reached the maximum iteration limit ({iteration:,} iterations).")
+            print(f"Explored {explored:,} unique states without finding a solution.")
+            print()
+            print("This happened because:")
+            print("  • The puzzle is too complex and needs more iterations")
+            print("  • The puzzle may be unsolvable in its current state")
+            print("  • There may be locked bottles blocking progress")
+            print()
+            print("Suggestions:")
+            print("  • Check if any bottles are locked and need to be unlocked first")
+            print("  • Verify the puzzle has enough empty bottles for working space")
+            print("  • Try solving step by step instead of all at once")
+        elif status == "NO_SOLUTION":
+            print()  # New line after progress
+            print()
+            print(f"{COLOR_CODES[Color.RED]}{BOLD}❌ NO SOLUTION EXISTS{RESET}")
+            print(f"Exhausted the entire search space after {iteration:,} iterations.")
+            print(f"Explored {explored:,} unique states and found no path to completion.")
+            print()
+            print("This means the puzzle is UNSOLVABLE because:")
+            print("  • Not enough empty bottles for working space")
+            print("  • Locked bottles are blocking necessary moves")
+            print("  • The color distribution makes completion impossible")
+            print("  • Unknown colors may need to be revealed first")
+            print()
+            print("Suggestions:")
+            print("  • Add more empty bottles to the puzzle")
+            print("  • Check lock conditions on bottles")
+            print("  • Verify unknown colors are correctly placed")

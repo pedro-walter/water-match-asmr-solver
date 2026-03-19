@@ -1,0 +1,20 @@
+{
+  "bottles": [
+    {
+      "number": 0,
+      "contents": ["RED", "BLUE", "RED", "BLUE"]
+    },
+    {
+      "number": 1,
+      "contents": ["BLUE", "RED", "BLUE", "RED"]
+    },
+    {
+      "number": 2,
+      "contents": []
+    },
+    {
+      "number": 3,
+      "contents": []
+    }
+  ]
+}

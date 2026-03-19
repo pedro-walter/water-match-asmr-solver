@@ -1,0 +1,26 @@
+{
+  "bottles": [
+    {
+      "number": 0,
+      "contents": ["RED", "RED", "RED", "UNKNOWN"]
+    },
+    {
+      "number": 1,
+      "contents": ["BLUE", "BLUE", "BLUE", "UNKNOWN"]
+    },
+    {
+      "number": 2,
+      "contents": ["GREEN", "GREEN", "YELLOW", "YELLOW"]
+    },
+    {
+      "number": 3,
+      "contents": [],
+      "locked": {"count": 1, "color": "ANY"}
+    },
+    {
+      "number": 4,
+      "contents": [],
+      "locked": {"count": 1, "color": "RED"}
+    }
+  ]
+}
