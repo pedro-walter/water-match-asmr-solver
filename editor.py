@@ -80,7 +80,7 @@ def _cursor_edit(play_area: PlayArea, ui: ConsoleUI):
 
         # Call the appropriate render method with cursor info
         if play_area.column_layout:
-            ui._render_columns(play_area)
+            ui._render_columns(play_area, current_bottle, cursor_slot)
         elif play_area.row_layout:
             ui._render_rows(play_area, current_bottle, cursor_slot)
         else:
@@ -337,6 +337,9 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
                 _handle_row_add(play_area, ui, show_feedback)
                 selected_row = len(play_area.row_layout) if play_area.row_layout else None
                 selected_column = None
+
+            elif user_input.lower().startswith('col ') and ' gap' in user_input.lower():
+                _handle_col_gap(user_input, play_area, ui, show_feedback)
 
             elif user_input.lower().startswith('col '):
                 _handle_col_command(user_input, play_area, ui, show_feedback)
@@ -653,12 +656,15 @@ def _handle_renumber(play_area: PlayArea, ui: ConsoleUI, show_feedback=None):
 
 def _handle_layout_cols(play_area: PlayArea, ui: ConsoleUI, show_feedback=None):
     """Handle 'layout cols' command."""
+    bottle_numbers = [b.number for b in play_area.bottles]
     if play_area.column_layout is None:
         # Create one column with all bottles
         play_area.column_layout = [{
             'skew': 0.0,
-            'bottle_indices': [b.number for b in play_area.bottles]
+            'gaps': [0.0] * len(bottle_numbers),
+            'bottle_indices': bottle_numbers
         }]
+        play_area.row_layout = None
         _show_msg(show_feedback, ui, "Column layout created with 1 column", "success")
     else:
         _show_msg(show_feedback, ui, "Already in column layout mode", "info")
@@ -671,10 +677,63 @@ def _handle_col_add(play_area: PlayArea, ui: ConsoleUI, show_feedback=None):
 
     play_area.column_layout.append({
         'skew': 0.0,
+        'gaps': [],
         'bottle_indices': []
     })
     col_num = len(play_area.column_layout)
     _show_msg(show_feedback, ui, f"Column {col_num} created", "success")
+
+
+def _handle_col_gap(user_input: str, play_area: PlayArea, ui: ConsoleUI, show_feedback=None):
+    """Handle 'col N gap M [VALUE]' commands to set/view gaps between bottles in a column."""
+    parts = user_input.split()
+
+    # Format: col N gap M [VALUE]
+    # col 1 gap 0 0.5  -> set gap before bottle 0 in column 1 to 0.5
+    # col 1 gap 0      -> show gap before bottle 0 in column 1
+
+    if len(parts) < 4:
+        raise ValueError("Format: 'col N gap M [VALUE]' (e.g., 'col 1 gap 0 0.5' or 'col 1 gap 0')")
+
+    try:
+        col_num = int(parts[1])
+        bottle_idx = int(parts[3])
+    except (ValueError, IndexError):
+        raise ValueError("Column number and bottle index must be integers")
+
+    if not play_area.column_layout or col_num < 1 or col_num > len(play_area.column_layout):
+        raise ValueError(f"Column {col_num} does not exist")
+
+    col_idx = col_num - 1
+    column = play_area.column_layout[col_idx]
+
+    # Initialize gaps if not present
+    if 'gaps' not in column:
+        column['gaps'] = [0.0] * len(column['bottle_indices'])
+
+    if bottle_idx < 0 or bottle_idx > len(column['bottle_indices']):
+        raise ValueError(f"Bottle index {bottle_idx} out of range (0-{len(column['bottle_indices'])})")
+
+    if len(parts) > 4:
+        # Set gap value
+        try:
+            value = float(parts[4])
+        except (ValueError, IndexError):
+            raise ValueError("Gap value must be a number")
+
+        # Ensure gaps array is large enough
+        while len(column['gaps']) <= bottle_idx:
+            column['gaps'].append(0.0)
+
+        column['gaps'][bottle_idx] = value
+        _show_msg(show_feedback, ui, f"Column {col_num}: gap before bottle {bottle_idx} set to {value}", "success")
+    else:
+        # Show current gap value
+        if bottle_idx < len(column['gaps']):
+            current_gap = column['gaps'][bottle_idx]
+            _show_msg(show_feedback, ui, f"Column {col_num}: gap before bottle {bottle_idx} = {current_gap}", "info")
+        else:
+            _show_msg(show_feedback, ui, f"Column {col_num}: gap before bottle {bottle_idx} not set (default: 0.0)", "info")
 
 
 def _handle_col_command(user_input: str, play_area: PlayArea, ui: ConsoleUI, show_feedback=None):
@@ -694,7 +753,7 @@ def _handle_col_command(user_input: str, play_area: PlayArea, ui: ConsoleUI, sho
 
     # Ensure column exists
     while len(play_area.column_layout) < col_number:
-        play_area.column_layout.append({'skew': 0.0, 'bottle_indices': []})
+        play_area.column_layout.append({'skew': 0.0, 'gaps': [], 'bottle_indices': []})
 
     col_idx = col_number - 1
 
@@ -711,6 +770,8 @@ def _handle_col_command(user_input: str, play_area: PlayArea, ui: ConsoleUI, sho
     # Add bottle to column
     number = play_area.add_new_bottle(colors)
     play_area.column_layout[col_idx]['bottle_indices'].append(number)
+    # Add corresponding gap entry (default to 0.0)
+    play_area.column_layout[col_idx]['gaps'].append(0.0)
     _show_msg(show_feedback, ui, f"Bottle #{number} added to column {col_number}", "success")
 
 
@@ -843,6 +904,8 @@ def _print_help():
     print("  select col N   Select column N for adding (e.g., 'select col 2')")
     print("  col N select   Select column N (alias, e.g., 'col 2 select')")
     print("  col N add RRRG Add bottle with contents to column N")
+    print("  col N gap M V  Set gap before bottle M in column N to V bottle-heights")
+    print("  col N gap M    Show current gap value before bottle M in column N")
     print("  move N col M   Move bottle N to column M")
     print("  move N row M   Move bottle N to row M (auto-renumbers)")
     print("  renumber       Renumber all bottles sequentially by row")

@@ -85,10 +85,12 @@ def convert_columns_to_bottles(data: Dict[str, Any]) -> Dict[str, Any]:
 
     for col_idx, column in enumerate(data['columns']):
         skew = column.get('skew', 0)  # Vertical offset in bottle heights
+        gaps = column.get('gaps', [])  # Per-bottle gaps
         bottles_in_column = column.get('bottles', [])
 
         column_info = {
             'skew': skew,
+            'gaps': gaps,
             'bottle_indices': []
         }
 

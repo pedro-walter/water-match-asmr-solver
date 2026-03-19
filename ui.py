@@ -75,7 +75,7 @@ class ConsoleUI:
 
         print()
 
-    def _render_columns(self, play_area: PlayArea):
+    def _render_columns(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None):
         """Render bottles in vertical column layout with skew offsets."""
         if not play_area.column_layout:
             return
@@ -87,13 +87,20 @@ class ConsoleUI:
         for col_idx, column_info in enumerate(play_area.column_layout):
             skew = column_info['skew']
             bottle_indices = column_info['bottle_indices']
+            gaps = column_info.get('gaps', [])
 
-            # Calculate row offset from skew (skew of 1.0 = 4 content rows)
+            # Calculate row offset from skew (skew of 1.0 = 4 content rows = 8 lines)
             skew_offset = int(skew * 8)
 
             for bottle_position, bottle_num in enumerate(bottle_indices):
+                # Calculate cumulative gap offset (sum of all gaps before and at this bottle position)
+                gap_offset = 0
+                for i in range(bottle_position + 1):
+                    if i < len(gaps):
+                        gap_offset += int(gaps[i] * 8)
+
                 # Each bottle takes 7 rows, bottles stack downward
-                row_start = skew_offset + (bottle_position * self.bottle_height)
+                row_start = skew_offset + gap_offset + (bottle_position * self.bottle_height)
                 bottle_positions[bottle_num] = (row_start, col_idx)
                 max_row = max(max_row, row_start + self.bottle_height)
 
@@ -109,8 +116,9 @@ class ConsoleUI:
             row_start, col_idx = bottle_positions[bottle.number]
             is_locked = play_area.is_bottle_locked(bottle.number)
 
-            # Generate bottle lines
-            bottle_lines = self._get_bottle_lines(bottle, is_locked)
+            # Generate bottle lines with cursor info
+            show_cursor = cursor_bottle is not None and cursor_slot is not None and bottle == cursor_bottle
+            bottle_lines = self._get_bottle_lines(bottle, is_locked, show_cursor, cursor_slot if show_cursor else None)
 
             # Place in grid
             for line_offset, line_text in enumerate(bottle_lines):
@@ -120,8 +128,8 @@ class ConsoleUI:
         for row in grid:
             print('  '.join(row))
 
-    def _get_bottle_lines(self, bottle: Bottle, is_locked: bool) -> list:
-        """Get the 7 lines for displaying a bottle."""
+    def _get_bottle_lines(self, bottle: Bottle, is_locked: bool, show_cursor: bool = False, cursor_slot: int = None) -> list:
+        """Get the 7 lines for displaying a bottle. Optionally show cursor at cursor_slot."""
         lines = []
 
         # Line 0: Label (two spaces after #XX in both cases)
@@ -141,9 +149,17 @@ class ConsoleUI:
             if level < len(bottle.contents):
                 color = bottle.contents[level]
                 symbol = COLOR_SYMBOLS.get(color, "?")
-                lines.append(f"│ {symbol} │  ")
             else:
-                lines.append("│    │  ")
+                symbol = " "
+
+            # Add cursor if this is the selected slot
+            if show_cursor and cursor_slot is not None and level == cursor_slot:
+                lines.append(f"│ {symbol} │< ")
+            else:
+                if level < len(bottle.contents):
+                    lines.append(f"│ {symbol} │  ")
+                else:
+                    lines.append("│    │  ")
 
         # Line 6: Bottom border
         if bottle.is_complete:
