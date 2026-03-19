@@ -161,6 +161,11 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
             response = ui.prompt_continue()
             if response == 's':
                 save_current_state(play_area, json_filepath, ui)
+            elif response == 'e':
+                # Launch editor and return
+                from editor import run_editor
+                run_editor(json_filepath)
+                return
         else:
             print("Starting solver in auto mode...")
             print()
@@ -224,6 +229,11 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                                 response = ui.prompt_continue()
                                 if response == 's':
                                     save_current_state(play_area, json_filepath, ui)
+                                elif response == 'e':
+                                    # Launch editor and return
+                                    from editor import run_editor
+                                    run_editor(json_filepath)
+                                    return
                             else:
                                 time.sleep(delay)
 
@@ -312,9 +322,10 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                     else:
                         ui.show_message(f"Updated UNKNOWN to {revealed_color.name}", "success")
 
-                    # Save only the revealed unknowns back to the original JSON file
+                    # Save current state to original file (with all moves applied and unknowns revealed)
                     try:
-                        save_revealed_unknowns(json_filepath, revealed_unknowns, ui)
+                        play_area.save_to_json(json_filepath)
+                        ui.show_message(f"Updated {json_filepath} with current progress", "success")
                     except Exception as e:
                         ui.show_message(f"Warning: Could not save to file: {e}", "warning")
 
@@ -330,6 +341,11 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                     response = ui.prompt_continue()
                     if response == 's':
                         save_current_state(play_area, json_filepath, ui)
+                    elif response == 'e':
+                        # Launch editor and return
+                        from editor import run_editor
+                        run_editor(json_filepath)
+                        return
                 else:
                     time.sleep(delay)
 

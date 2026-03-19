@@ -6,11 +6,13 @@ A solver for water sort puzzles using A* search algorithm.
 Supports bottle locking mechanics and interactive unknown color revelation.
 
 Usage:
-    python main.py <puzzle.json> [--auto] [--delay SECONDS]
+    python main.py [puzzle.json] [options]
 
-Example:
-    python main.py example_simple.json
-    python main.py example_complex.json --auto --delay 1.0
+Examples:
+    python main.py                          # Launch editor (new puzzle)
+    python main.py example_simple.json      # Solve puzzle
+    python main.py example.json --edit      # Edit existing puzzle
+    python main.py example.json --auto --delay 1.0
 """
 
 import argparse
@@ -29,7 +31,9 @@ Examples:
 
     parser.add_argument(
         'puzzle_file',
-        help='Path to the puzzle JSON file'
+        nargs='?',
+        default=None,
+        help='Path to the puzzle JSON file (optional; launches editor if omitted)'
     )
 
     parser.add_argument(
@@ -52,11 +56,27 @@ Examples:
         help='Maximum solver iterations before timeout (default: 10000000)'
     )
 
+    parser.add_argument(
+        '--edit',
+        action='store_true',
+        help='Load puzzle file for editing instead of solving'
+    )
+
     args = parser.parse_args()
 
-    # Run the solver (interactive by default, unless --auto is specified)
-    run_solver(args.puzzle_file, args.delay, interactive=not args.auto,
-               max_iterations=args.max_iterations)
+    if args.puzzle_file:
+        if args.edit:
+            # Load puzzle for editing
+            from editor import run_editor
+            run_editor(args.puzzle_file)
+        else:
+            # Run the solver (interactive by default, unless --auto is specified)
+            run_solver(args.puzzle_file, args.delay, interactive=not args.auto,
+                       max_iterations=args.max_iterations)
+    else:
+        # Launch the editor with a new puzzle
+        from editor import run_editor
+        run_editor()
 
 if __name__ == "__main__":
     main()

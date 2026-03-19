@@ -9,8 +9,9 @@ class PlayArea:
         self.lock_conditions: Dict[int, LockCondition] = {}
         self.completed_bottles: set = set()
         self.completed_colors: Dict[Color, int] = {}
-        # Column layout metadata for display
+        # Layout metadata for display
         self.column_layout: Optional[List[Dict]] = None  # List of {skew, bottle_indices}
+        self.row_layout: Optional[List[Dict]] = None  # List of {bottle_indices} for row mode
 
     def add_bottle(self, number: int, contents: list = None):
         """Add a bottle to the play area."""
@@ -32,9 +33,11 @@ class PlayArea:
         data = load_json_puzzle(filepath)
         play_area = PlayArea()
 
-        # Store column layout metadata if present
+        # Store layout metadata if present
         if 'column_layout' in data:
             play_area.column_layout = data['column_layout']
+        if 'row_layout' in data:
+            play_area.row_layout = data['row_layout']
 
         for bottle_data in data['bottles']:
             number = bottle_data['number']
@@ -93,6 +96,13 @@ class PlayArea:
             bottles_data.append(bottle_dict)
 
         data = {'bottles': bottles_data}
+
+        # Include layout metadata if present
+        if self.column_layout is not None:
+            data['column_layout'] = self.column_layout
+        if self.row_layout is not None:
+            data['row_layout'] = self.row_layout
+
         save_json_puzzle(data, filepath)
 
     def is_bottle_locked(self, bottle_number: int) -> bool:
@@ -273,6 +283,152 @@ class PlayArea:
             if bottle.number == number:
                 return bottle
         return None
+
+    def set_bottle_contents(self, bottle_number: int, colors: List[Color]) -> None:
+        """
+        Set bottle contents and re-evaluate completion status.
+
+        Args:
+            bottle_number: The bottle number to modify
+            colors: List of Color enums to set
+        """
+        bottle = self.get_bottle_by_number(bottle_number)
+        if bottle is None:
+            raise ValueError(f"Bottle {bottle_number} not found")
+
+        bottle.contents = colors.copy()
+        bottle.is_complete = False
+
+        # Check if now complete
+        if len(bottle.contents) == 4 and bottle.all_colors_equal() and bottle.contents[-1] != Color.UNKNOWN:
+            bottle.is_complete = True
+
+        self.update_locks()
+
+    def set_lock(self, bottle_number: int, count: int, color: Optional[Color] = None) -> None:
+        """
+        Set a lock condition on a bottle.
+
+        Args:
+            bottle_number: The bottle number to lock
+            count: Number of bottles that need to be completed
+            color: Color to match (None for ANY)
+        """
+        self.lock_conditions[bottle_number] = LockCondition(count, color)
+        self.update_locks()
+
+    def remove_lock(self, bottle_number: int) -> None:
+        """
+        Remove a lock condition from a bottle.
+
+        Args:
+            bottle_number: The bottle number to unlock
+        """
+        if bottle_number in self.lock_conditions:
+            del self.lock_conditions[bottle_number]
+        self.update_locks()
+
+    def add_new_bottle(self, contents: List[Color] = None) -> int:
+        """
+        Add a new bottle and return its number.
+
+        Args:
+            contents: Initial contents (default: empty)
+
+        Returns:
+            The number assigned to the new bottle
+        """
+        if self.bottles:
+            number = max(b.number for b in self.bottles) + 1
+        else:
+            number = 0
+
+        if contents is None:
+            contents = []
+
+        self.add_bottle(number, contents)
+        return number
+
+    def remove_bottle(self, bottle_number: int) -> None:
+        """
+        Remove a bottle and its lock condition.
+
+        Args:
+            bottle_number: The bottle number to remove
+        """
+        # Remove from bottles list
+        self.bottles = [b for b in self.bottles if b.number != bottle_number]
+
+        # Remove lock condition if present
+        if bottle_number in self.lock_conditions:
+            del self.lock_conditions[bottle_number]
+
+        # Remove from column layout if present
+        if self.column_layout:
+            for column in self.column_layout:
+                if 'bottle_indices' in column:
+                    column['bottle_indices'] = [
+                        idx for idx in column['bottle_indices'] if idx != bottle_number
+                    ]
+
+        # Remove from row layout if present
+        if self.row_layout:
+            for row in self.row_layout:
+                if 'bottle_indices' in row:
+                    row['bottle_indices'] = [
+                        idx for idx in row['bottle_indices'] if idx != bottle_number
+                    ]
+
+        self.update_locks()
+
+    def renumber_bottles_by_rows(self) -> None:
+        """
+        Renumber all bottles sequentially based on their row positions.
+        Row 0 gets numbers 0,1,2,...
+        Row 1 gets numbers starting from len(row0),...
+        And so on.
+        """
+        if not self.row_layout:
+            return
+
+        # Create a mapping from old number to new number
+        number_map = {}
+        new_number = 0
+
+        # Go through each row and reassign numbers
+        for row in self.row_layout:
+            for old_number in row['bottle_indices']:
+                number_map[old_number] = new_number
+                new_number += 1
+
+        # Update bottle numbers
+        for bottle in self.bottles:
+            if bottle.number in number_map:
+                bottle.number = number_map[bottle.number]
+
+        # Update row layout with new numbers
+        for row in self.row_layout:
+            row['bottle_indices'] = [number_map.get(num, num) for num in row['bottle_indices']]
+
+        # Update lock conditions with new bottle numbers
+        new_lock_conditions = {}
+        for old_num, lock in self.lock_conditions.items():
+            if old_num in number_map:
+                new_lock_conditions[number_map[old_num]] = lock
+            else:
+                new_lock_conditions[old_num] = lock
+        self.lock_conditions = new_lock_conditions
+
+        # Update completed bottles tracking
+        new_completed = set()
+        for old_num in self.completed_bottles:
+            if old_num in number_map:
+                new_completed.add(number_map[old_num])
+            else:
+                new_completed.add(old_num)
+        self.completed_bottles = new_completed
+
+        self.update_locks()
 
     def __repr__(self):
         return f"PlayArea(bottles={len(self.bottles)}, completed={len(self.completed_bottles)})"

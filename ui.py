@@ -65,9 +65,11 @@ class ConsoleUI:
             print(message)
             print()
 
-        # Use column layout if available, otherwise horizontal layout
+        # Use appropriate layout: column, row, or default horizontal
         if play_area.column_layout:
             self._render_columns(play_area)
+        elif play_area.row_layout:
+            self._render_rows(play_area)
         else:
             self._render_bottles_row(play_area)
 
@@ -223,6 +225,72 @@ class ConsoleUI:
         else:
             print("└────┘")
 
+    def _render_rows(self, play_area: PlayArea):
+        """Render bottles organized in rows (stacked vertically)."""
+        if not play_area.row_layout:
+            return
+
+        for row_idx, row_info in enumerate(play_area.row_layout):
+            bottle_indices = row_info['bottle_indices']
+            if not bottle_indices:
+                # Skip empty rows
+                continue
+
+            # Get bottles for this row, maintaining the order from bottle_indices
+            bottle_map = {b.number: b for b in play_area.bottles}
+            row_bottles = [bottle_map[num] for num in bottle_indices if num in bottle_map]
+
+            # Build the display line by line for this row
+            lines = []
+
+            # Header line with bottle numbers
+            header = ""
+            for bottle in row_bottles:
+                is_locked = play_area.is_bottle_locked(bottle.number)
+                header += f" #{bottle.number}"
+                if bottle.number < 10:
+                    header += " "
+                if is_locked:
+                    header += f" 🔒  "
+                else:
+                    header += f"     "
+            lines.append(header)
+
+            # Top border
+            border_top = ""
+            for _ in row_bottles:
+                border_top += "┌────┐   "
+            lines.append(border_top)
+
+            # Content lines (4 levels from top to bottom)
+            for level in range(3, -1, -1):
+                line = ""
+                for bottle in row_bottles:
+                    if level < len(bottle.contents):
+                        color = bottle.contents[level]
+                        symbol = COLOR_SYMBOLS.get(color, "?")
+                        line += f"│ {symbol} │   "
+                    else:
+                        line += "│    │   "
+                lines.append(line)
+
+            # Bottom border
+            border_bottom = ""
+            for bottle in row_bottles:
+                if bottle.is_complete:
+                    border_bottom += "└────┘ ✓ "
+                else:
+                    border_bottom += "└────┘   "
+            lines.append(border_bottom)
+
+            # Print all lines for this row
+            for line in lines:
+                print(line)
+
+            # Add spacing between rows
+            if row_idx < len(play_area.row_layout) - 1:
+                print()
+
     def render_move(self, from_idx: int, to_idx: int, play_area: PlayArea):
         """
         Display the game state after a move.
@@ -350,12 +418,14 @@ class ConsoleUI:
             to_bottle = play_area.bottles[to_idx]
             print(f"{i}. Bottle #{from_bottle.number} → Bottle #{to_bottle.number}")
 
-    def prompt_continue(self, message: str = "Press Enter to continue (or 's' to save)...") -> str:
+    def prompt_continue(self, message: str = "Press Enter to continue (or 's' to save, 'e' to edit)...") -> str:
         """
-        Prompt the user to continue or save.
+        Prompt the user to continue, save, or edit.
 
         Returns:
-            's' if user wants to save, empty string otherwise
+            's' if user wants to save
+            'e' if user wants to edit
+            empty string otherwise
         """
         response = input(message).strip().lower()
         return response
