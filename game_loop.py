@@ -113,6 +113,42 @@ def save_revealed_unknowns(json_filepath: str, revealed_unknowns: dict, ui: Cons
 
     ui.show_message(f"Saved revealed unknowns to {json_filepath}", "info")
 
+def infer_unknown_color(play_area: PlayArea):
+    """
+    Try to infer what the unknown color(s) must be using the constraint that
+    each color appears a multiple of 4 times across all bottles.
+
+    Returns the inferred Color if exactly one color has a non-multiple-of-4
+    count and its deficit equals the total number of unknowns, else None.
+    """
+    from models import Color
+    color_counts = {}
+    total_unknown = 0
+
+    for bottle in play_area.bottles:
+        for color in bottle.contents:
+            if color == Color.UNKNOWN:
+                total_unknown += 1
+            else:
+                color_counts[color] = color_counts.get(color, 0) + 1
+
+    if total_unknown == 0:
+        return None
+
+    # Colors whose count is not a multiple of 4 and how many more they need
+    short_colors = {
+        c: (4 - cnt % 4) % 4
+        for c, cnt in color_counts.items()
+        if cnt % 4 != 0
+    }
+    total_needed = sum(short_colors.values())
+
+    if total_needed == total_unknown and len(short_colors) == 1:
+        return next(iter(short_colors.keys()))
+
+    return None
+
+
 def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                max_iterations: int = 10000000):
     """
@@ -159,6 +195,8 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
         if unknown_count > 0:
             print(f"  • Unknown colors: {unknown_count}")
         print()
+        ui.print_color_counts(play_area)
+        print()
 
         if interactive:
             response = ui.prompt_continue()
@@ -184,7 +222,7 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
             moves, status = solver.solve_until_unknown(max_iterations=max_iterations,
                                                       progress_callback=progress_callback)
 
-            if status == "TIMEOUT" or status == "NO_SOLUTION":
+            if status == "TIMEOUT" or status == "NO_SOLUTION" or (status == "BOTTLE_UNLOCKED" and not moves):
                 # Detailed message already shown by progress_callback
                 # Don't clear screen - let user see the error message
                 print()
@@ -210,8 +248,8 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                     # Offer to save the state
                     save_state = ui.prompt_yes_no("Would you like to save this state to a file for debugging?")
                     if save_state:
-                        # Apply moves to get to best state
-                        debug_area = PlayArea.load_from_json(json_filepath)
+                        # Apply moves to get to best state, starting from the current play_area
+                        debug_area = play_area.clone()
                         for move in best_moves:
                             debug_area.apply_move(*move)
 
@@ -265,6 +303,12 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
             for i, move in enumerate(moves):
                 from_idx, to_idx = move
 
+                # Note which bottles are locked before this move (needed for BOTTLE_UNLOCKED detection)
+                locked_before = {
+                    j for j, b in enumerate(play_area.bottles)
+                    if play_area.is_bottle_locked(b.number)
+                }
+
                 # Apply the move
                 success = play_area.apply_move(from_idx, to_idx)
 
@@ -309,11 +353,20 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                             else:
                                 break
 
-                    # 3c. Prompt user for revealed color(s)
-                    revealed_color, reveal_count = ui.prompt_for_revealed_color(
-                        bottle_with_unknown.number if bottle_with_unknown else None,
-                        unknown_count
-                    )
+                    # 3c. Try to infer color from count constraints, else prompt
+                    inferred = infer_unknown_color(play_area)
+                    if inferred is not None:
+                        ui.show_message(
+                            f"Inferred: all unknowns must be {inferred.name} "
+                            f"(only color with non-multiple-of-4 count)",
+                            "info"
+                        )
+                        revealed_color, reveal_count = inferred, unknown_count
+                    else:
+                        revealed_color, reveal_count = ui.prompt_for_revealed_color(
+                            bottle_with_unknown.number if bottle_with_unknown else None,
+                            unknown_count
+                        )
 
                     # Reveal the color(s) in the appropriate bottle
                     if bottle_idx_with_unknown is not None:
@@ -356,6 +409,85 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                     # 3d. Resume solving from updated state
                     solver.resume_from(play_area)
                     break
+
+                # Check if this was the last move and it unlocked a bottle with unknown/empty contents
+                if i == len(moves) - 1 and status == "BOTTLE_UNLOCKED":
+                    if interactive:
+                        print()
+                    else:
+                        time.sleep(delay)
+
+                    # Find which bottle was just unlocked with all-unknown or empty contents
+                    for bottle_idx, bottle in enumerate(play_area.bottles):
+                        if bottle_idx not in locked_before:
+                            continue
+                        if play_area.is_bottle_locked(bottle.number):
+                            continue
+                        # This bottle was just unlocked — check if contents need to be revealed
+                        is_all_unknown = len(bottle.contents) > 0 and all(
+                            c == Color.UNKNOWN for c in bottle.contents
+                        )
+                        is_empty = len(bottle.contents) == 0
+                        if not (is_all_unknown or is_empty):
+                            continue
+
+                        bottle_number = bottle.number
+
+                        # Show inference hint if possible
+                        inferred = infer_unknown_color(play_area)
+                        if inferred is not None:
+                            ui.show_message(
+                                f"Hint: based on color counts, all unknowns should be {inferred.name}",
+                                "info"
+                            )
+
+                        new_contents = ui.prompt_for_unlocked_bottle_contents(bottle_number, is_all_unknown)
+
+                        # Update the bottle in the current play area
+                        bottle.contents = new_contents
+                        bottle.is_complete = False
+                        if (len(new_contents) == 4 and len(set(new_contents)) == 1
+                                and new_contents[0] != Color.UNKNOWN):
+                            bottle.is_complete = True
+                        play_area.update_locks()
+
+                        # Mirror update in original play area for saving
+                        original_bottle = original_play_area.get_bottle_by_number(bottle_number)
+                        if original_bottle:
+                            original_bottle.contents = new_contents.copy()
+                            original_bottle.is_complete = bottle.is_complete
+                        original_play_area.update_locks()
+
+                        # Track revelations for saving
+                        if bottle_number not in revealed_unknowns:
+                            revealed_unknowns[bottle_number] = {}
+                        for pos, color in enumerate(new_contents):
+                            revealed_unknowns[bottle_number][pos] = color
+
+                        if new_contents:
+                            ui.show_message(
+                                f"Bottle #{bottle_number} contents set: "
+                                + " ".join(c.name for c in new_contents),
+                                "success"
+                            )
+                        else:
+                            ui.show_message(f"Bottle #{bottle_number} confirmed empty", "success")
+
+                        # Save original puzzle with new contents
+                        try:
+                            original_play_area.save_to_json(json_filepath)
+                            ui.show_message(f"Updated {json_filepath}", "success")
+                        except Exception as e:
+                            ui.show_message(f"Warning: Could not save to file: {e}", "warning")
+
+                        if not interactive:
+                            time.sleep(delay)
+
+                        # Resume solving from updated state
+                        solver.resume_from(play_area)
+                        break
+
+                    break  # Break move loop to re-solve with updated state
 
                 # Pause for visualization
                 if interactive:

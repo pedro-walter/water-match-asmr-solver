@@ -12,10 +12,10 @@
     {
       "number": 1,
       "contents": [
-        "UNKNOWN",
-        "UNKNOWN",
-        "UNKNOWN",
-        "UNKNOWN"
+        "RED",
+        "RED",
+        "PURPLE",
+        "BLUE"
       ],
       "lock_condition": {
         "count": 3,
@@ -164,8 +164,8 @@
     {
       "number": 18,
       "contents": [
-        "UNKNOWN",
-        "UNKNOWN",
+        "YELLOW",
+        "BLUE",
         "YELLOW",
         "GREY"
       ],

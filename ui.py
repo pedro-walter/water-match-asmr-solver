@@ -421,6 +421,47 @@ class ConsoleUI:
                 print(f"Invalid input. Please try again.")
                 print("Format: 'COLOR' or 'COUNT COLOR' or 'COLOR COUNT'")
 
+    def print_color_counts(self, play_area: PlayArea) -> None:
+        """
+        Print a color count table showing how many of each color exist across
+        all bottles, highlighting colors whose count is not a multiple of 4.
+        """
+        color_counts = {}
+        unknown_count = 0
+
+        for bottle in play_area.bottles:
+            for color in bottle.contents:
+                if color == Color.UNKNOWN:
+                    unknown_count += 1
+                else:
+                    color_counts[color] = color_counts.get(color, 0) + 1
+
+        if not color_counts and unknown_count == 0:
+            print("  (no colors yet)")
+            return
+
+        # Build display entries sorted by color name
+        entries = []
+        for color in sorted(color_counts, key=lambda c: c.name):
+            count = color_counts[color]
+            deficit = (4 - count % 4) % 4
+            code = COLOR_CODES.get(color, "")
+            symbol = COLOR_SYMBOLS.get(color, "")
+            if deficit == 0:
+                label = f"{code}{symbol} {color.name}:{count}✓{RESET}"
+            else:
+                label = f"{COLOR_CODES[Color.YELLOW]}{symbol} {color.name}:{count}(+{deficit}){RESET}"
+            entries.append(label)
+
+        if unknown_count > 0:
+            entries.append(f"{COLOR_CODES[Color.UNKNOWN]}❓ UNKNOWN:{unknown_count}{RESET}")
+
+        # Print in rows of 4
+        print("Color counts  (✓ = multiple of 4):")
+        row_size = 4
+        for i in range(0, len(entries), row_size):
+            print("  " + "   ".join(entries[i:i + row_size]))
+
     def show_message(self, msg: str, level: str = "info"):
         """
         Display a status message.
@@ -455,6 +496,56 @@ class ConsoleUI:
             from_bottle = play_area.bottles[from_idx]
             to_bottle = play_area.bottles[to_idx]
             print(f"{i}. Bottle #{from_bottle.number} → Bottle #{to_bottle.number}")
+
+    def prompt_for_unlocked_bottle_contents(self, bottle_number: int, is_all_unknown: bool) -> List[Color]:
+        """
+        Prompt user to identify the contents of a newly-unlocked bottle.
+
+        Args:
+            bottle_number: The bottle number that was just unlocked
+            is_all_unknown: True if contents are all UNKNOWN, False if empty
+
+        Returns:
+            List of Color enums from bottom to top (may be empty)
+        """
+        print()
+        if is_all_unknown:
+            print(f"{BOLD}🔓 Bottle #{bottle_number} unlocked! Its contents are hidden.{RESET}")
+        else:
+            print(f"{BOLD}🔓 Bottle #{bottle_number} unlocked! It appears empty in the puzzle file.{RESET}")
+        print("What are its contents? Enter colors from bottom to top.")
+        print("Format: space-separated colors or mnemonics (e.g., 'R G B Y' or 'RED GREEN BLUE YELLOW')")
+        print("Press Enter if the bottle is genuinely empty.")
+        print("Available: RED(R), PURPLE(P), GREY(A), GREEN(G), YELLOW(Y), ORANGE(O), BLUE(U), CYAN(C), UNKNOWN(?)")
+        print()
+
+        while True:
+            try:
+                user_input = input("> ").strip().upper()
+
+                if not user_input:
+                    return []
+
+                colors = []
+                valid = True
+                for part in user_input.split():
+                    if part in COLOR_MNEMONICS:
+                        color = COLOR_MNEMONICS[part]
+                    else:
+                        color = color_from_string(part)
+                    colors.append(color)
+
+                if not valid:
+                    continue
+
+                if len(colors) > 4:
+                    print("A bottle can hold at most 4 colors. Please re-enter.")
+                    continue
+
+                return colors
+
+            except ValueError:
+                print("Invalid input. Please try again.")
 
     def prompt_continue(self, message: str = "Press Enter to continue (or 's' to save, 'e' to edit)...") -> str:
         """

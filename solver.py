@@ -134,6 +134,21 @@ class GameState:
             self.lock_conditions
         )
 
+    def to_key(self) -> bytes:
+        """
+        Compact bytes representation of bottle contents for use as a dict key.
+        Encodes 2 color values per byte using 4-bit nibbles (values 0-8, empty=15).
+        For N bottles × 4 slots: N*2 bytes total.
+        """
+        arr = bytearray()
+        for bottle in self.bottles:
+            padded = list(bottle) + [None] * (4 - len(bottle))
+            for k in range(0, 4, 2):
+                c1 = padded[k].value if padded[k] is not None else 15
+                c2 = padded[k + 1].value if padded[k + 1] is not None else 15
+                arr.append((c1 << 4) | c2)
+        return bytes(arr)
+
     def __repr__(self):
         return f"GameState({len(self.bottles)} bottles, {len(self.completed_bottles)} complete)"
 
@@ -185,9 +200,56 @@ class Solver:
         self.current_state = initial_play_area.to_game_state()
         self.best_partial_node = None  # Best state found when no complete solution exists
         self.best_partial_iteration = 0  # Iteration when best state was found
-        # Use weighted A* for large puzzles (>12 bottles) to trade optimality for speed
+        # Use weighted A* for large puzzles to trade optimality for speed.
+        # Increase weight further when there are locked bottles with highly
+        # fragmented prerequisite colors — those need aggressive prioritization.
         num_bottles = len(initial_play_area.bottles)
-        self.heuristic_weight = 2.0 if num_bottles > 12 else 1.0
+        if num_bottles <= 12:
+            self.heuristic_weight = 1.0
+        else:
+            lock_difficulty = self._compute_lock_difficulty(initial_play_area)
+            self.heuristic_weight = 2.0 + lock_difficulty
+
+    def _compute_lock_difficulty(self, play_area: PlayArea) -> float:
+        """
+        Estimate extra heuristic weight needed based on lock difficulty.
+        Returns a value in [0, 3] added on top of the base weight of 2.0.
+
+        High difficulty = many locked bottles whose prerequisite colors are
+        highly fragmented relative to the available buffer space.
+        """
+        if not play_area.lock_conditions:
+            return 0.0
+
+        empty_bottles = sum(1 for b in play_area.bottles if len(b.contents) == 0)
+        buffer_count = max(empty_bottles, 1)
+
+        # Count fragmentation of each prerequisite color
+        color_counts: Dict[Color, int] = {}
+        for bottle in play_area.bottles:
+            for color in bottle.contents:
+                if color != Color.UNKNOWN:
+                    color_counts[color] = color_counts.get(color, 0) + 1
+
+        bottles_per_color: Dict[Color, int] = {}
+        for bottle in play_area.bottles:
+            seen = set(c for c in bottle.contents if c != Color.UNKNOWN)
+            for color in seen:
+                bottles_per_color[color] = bottles_per_color.get(color, 0) + 1
+
+        max_fragmentation_ratio = 0.0
+        for bottle_num, lock_cond in play_area.lock_conditions.items():
+            if lock_cond.color is None:
+                continue
+            color = lock_cond.color
+            spread = bottles_per_color.get(color, 0)
+            needed_bottles = lock_cond.count
+            # Fragmentation ratio: how many extra bottles hold this color per buffer
+            ratio = max(spread - needed_bottles, 0) / buffer_count
+            max_fragmentation_ratio = max(max_fragmentation_ratio, ratio)
+
+        # Cap at 3.0 extra weight
+        return min(max_fragmentation_ratio, 3.0)
 
     def solve_until_unknown(self, max_iterations: int = 10000000,
                            progress_callback=None) -> Tuple[List[Tuple[int, int]], str]:
@@ -206,8 +268,10 @@ class Solver:
             - "TIMEOUT": Max iterations reached
         """
         open_set = []
-        # Maps state -> best g_score seen so far (replaces separate closed_set)
-        best_g: Dict[GameState, int] = {}
+        # Maps compact state key -> best g_score seen so far.
+        # Uses bytes keys (~42 bytes each) instead of full GameState objects (~3-4KB each)
+        # to avoid exhausting RAM on large puzzles.
+        best_g: Dict[bytes, int] = {}
         iteration = 0
 
         start_node = SearchNode(
@@ -217,7 +281,7 @@ class Solver:
         )
 
         heapq.heappush(open_set, start_node)
-        best_g[self.current_state] = 0
+        best_g[self.current_state.to_key()] = 0
 
         # Track best state found (most completed bottles)
         best_node = start_node
@@ -247,7 +311,7 @@ class Solver:
                 return path, "SOLVED"
 
             # Skip if a better path to this state was already expanded
-            if current.g_score > best_g.get(current.state, float('inf')):
+            if current.g_score > best_g.get(current.state.to_key(), float('inf')):
                 continue
 
             # Track best state (most completed bottles)
@@ -280,12 +344,24 @@ class Solver:
                 if new_state is None:
                     continue
 
+                # Check if this move unlocks a bottle with all-unknown or empty contents
+                newly_unlocked = current.state.locked_bottles - new_state.locked_bottles
+                for unlocked_idx in newly_unlocked:
+                    bottle_contents = new_state.bottles[unlocked_idx]
+                    if len(bottle_contents) == 0 or all(c == Color.UNKNOWN for c in bottle_contents):
+                        if progress_callback:
+                            progress_callback(iteration, len(open_set), len(best_g), "BOTTLE_UNLOCKED")
+                        path = self._reconstruct_path(current)
+                        path.append(move)
+                        return path, "BOTTLE_UNLOCKED"
+
                 # Only enqueue if this is the best path to this state
                 g_score = current.g_score + 1
-                if g_score >= best_g.get(new_state, float('inf')):
+                new_key = new_state.to_key()
+                if g_score >= best_g.get(new_key, float('inf')):
                     continue
 
-                best_g[new_state] = g_score
+                best_g[new_key] = g_score
                 h_score = self._heuristic(new_state) * self.heuristic_weight
                 successor = SearchNode(new_state, current, move, g_score, h_score)
 
@@ -455,7 +531,8 @@ class Solver:
         Combined heuristic:
         1. Color fragmentation: each color in N bottles needs at least N-1 merging moves
         2. Bottle disruption: each color-change boundary in a bottle needs at least 1 move
-        3. Lock deficit: extra cost for colors needed to meet lock conditions
+        3. Lock deficit: extra cost for colors needed to meet lock conditions,
+           including fragmentation of the prerequisite color itself
         """
         color_bottles: Dict[Color, int] = {}
         disruption = 0
@@ -465,8 +542,6 @@ class Solver:
                 continue
             if i in state.completed_bottles:
                 continue
-            if i in state.locked_bottles:
-                continue
 
             seen_in_bottle = set()
             for color in bottle:
@@ -475,15 +550,18 @@ class Solver:
             for color in seen_in_bottle:
                 color_bottles[color] = color_bottles.get(color, 0) + 1
 
-            # Count color-change boundaries (each needs at least 1 pour)
-            for j in range(1, len(bottle)):
-                if bottle[j] != bottle[j - 1]:
-                    disruption += 1
+            # Count color-change boundaries only for accessible (non-locked) bottles
+            if i not in state.locked_bottles:
+                for j in range(1, len(bottle)):
+                    if bottle[j] != bottle[j - 1]:
+                        disruption += 1
 
         fragmentation = sum(count - 1 for count in color_bottles.values())
         base = max(fragmentation, disruption)
 
-        # Lock deficit: penalize being far from meeting lock conditions
+        # Lock deficit: penalize being far from meeting lock conditions.
+        # Use the prerequisite color's own fragmentation (spread across bottles)
+        # as a tighter lower bound than the flat `need * 4`.
         lock_penalty = 0
         for bottle_idx, lock_cond in state.lock_conditions.items():
             if bottle_idx not in state.locked_bottles:
@@ -492,9 +570,13 @@ class Solver:
                 have = state.completed_colors.get(lock_cond.color, 0)
                 need = lock_cond.count - have
                 if need > 0:
-                    # Each missing completed bottle needs at least 4 moves
-                    # to gather scattered pieces (admissible lower bound)
-                    lock_penalty += need * 4
+                    prereq_color = lock_cond.color
+                    # Count bottles containing the prerequisite color
+                    bottles_with_prereq = color_bottles.get(prereq_color, 0)
+                    # Fragmentation of prerequisite: need to consolidate those bottles
+                    # down to `need` complete ones (each consolidation costs ≥1 move)
+                    prereq_fragmentation = max(bottles_with_prereq - need, 0)
+                    lock_penalty += need * 4 + prereq_fragmentation
 
         return base + lock_penalty
 

@@ -231,6 +231,8 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
             ui._render_bottles_row(play_area)
 
         print()
+        ui.print_color_counts(play_area)
+        print()
 
         # Show help text AFTER game area if requested
         if show_help[0]:
