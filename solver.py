@@ -106,7 +106,9 @@ class GameState:
         new_completed_colors = {}
 
         for i, bottle_contents in enumerate(new_bottles):
-            if len(bottle_contents) == 4 and all(c == bottle_contents[0] for c in bottle_contents):
+            if (len(bottle_contents) == 4 and
+                    bottle_contents[0] != Color.UNKNOWN and
+                    all(c == bottle_contents[0] for c in bottle_contents)):
                 new_completed.add(i)
                 color = bottle_contents[0]
                 new_completed_colors[color] = new_completed_colors.get(color, 0) + 1
@@ -183,6 +185,9 @@ class Solver:
         self.current_state = initial_play_area.to_game_state()
         self.best_partial_node = None  # Best state found when no complete solution exists
         self.best_partial_iteration = 0  # Iteration when best state was found
+        # Use weighted A* for large puzzles (>12 bottles) to trade optimality for speed
+        num_bottles = len(initial_play_area.bottles)
+        self.heuristic_weight = 2.0 if num_bottles > 12 else 1.0
 
     def solve_until_unknown(self, max_iterations: int = 10000000,
                            progress_callback=None) -> Tuple[List[Tuple[int, int]], str]:
@@ -255,6 +260,12 @@ class Solver:
             # Generate valid moves
             valid_moves = self._generate_valid_moves(current.state)
 
+            # Reverse-move pruning: don't undo the move that got us here
+            if current.move is not None:
+                prev_from, prev_to = current.move
+                valid_moves = [(f, t) for f, t in valid_moves
+                               if not (f == prev_to and t == prev_from)]
+
             for move in valid_moves:
                 # Check if move reveals unknown
                 if self._is_revealing_unknown(current.state, move):
@@ -275,7 +286,7 @@ class Solver:
                     continue
 
                 best_g[new_state] = g_score
-                h_score = self._heuristic(new_state)
+                h_score = self._heuristic(new_state) * self.heuristic_weight
                 successor = SearchNode(new_state, current, move, g_score, h_score)
 
                 heapq.heappush(open_set, successor)
@@ -347,7 +358,8 @@ class Solver:
             from_consecutive = self._count_consecutive_top(from_bottle)
 
             # Skip pouring a uniform bottle into an empty — it's a no-op shuffle
-            is_uniform = (from_consecutive == len(from_bottle))
+            # BUT: UNKNOWN bottles must be allowed (pouring reveals unknowns)
+            is_uniform = (from_consecutive == len(from_bottle)) and from_color != Color.UNKNOWN
 
             for j, to_bottle in enumerate(state.bottles):
                 if i == j:
@@ -416,8 +428,8 @@ class Solver:
         """
         Calculate heuristic estimate for the state.
 
-        If unknowns exist, focus only on revealing them (puzzle is unsolvable until then).
-        If no unknowns, focus on solving the puzzle.
+        If accessible unknowns exist (in non-locked bottles), focus on revealing them.
+        Otherwise, focus on solving the puzzle (even if locked bottles have unknowns).
 
         Args:
             state: The game state to evaluate
@@ -425,41 +437,66 @@ class Solver:
         Returns:
             Heuristic score (lower is better)
         """
-        # Check if there are any unknowns remaining
-        unknown_count = 0
-        for bottle in state.bottles:
-            unknown_count += bottle.count(Color.UNKNOWN)
+        # Count unknowns only in accessible (non-locked) bottles
+        accessible_unknown_count = 0
+        for i, bottle in enumerate(state.bottles):
+            if i not in state.locked_bottles:
+                accessible_unknown_count += bottle.count(Color.UNKNOWN)
 
-        if unknown_count > 0:
-            # Unknowns exist: ignore everything else, just reveal them
+        if accessible_unknown_count > 0:
+            # Accessible unknowns exist: reveal them first
             return self._unknown_bonus(state)
         else:
-            # No unknowns: focus on solving the puzzle
+            # No accessible unknowns: solve the puzzle
             return self._color_fragmentation_heuristic(state)
 
     def _color_fragmentation_heuristic(self, state: GameState) -> float:
         """
-        For each color, count how many bottles it's spread across.
-        Merging N bottles into 1 requires at least N-1 moves.
-        Admissible: each move reduces a color's bottle count by at most 1.
+        Combined heuristic:
+        1. Color fragmentation: each color in N bottles needs at least N-1 merging moves
+        2. Bottle disruption: each color-change boundary in a bottle needs at least 1 move
+        3. Lock deficit: extra cost for colors needed to meet lock conditions
         """
-        # Map each color to the number of (non-completed) bottles it appears in
         color_bottles: Dict[Color, int] = {}
+        disruption = 0
 
         for i, bottle in enumerate(state.bottles):
             if len(bottle) == 0:
                 continue
             if i in state.completed_bottles:
                 continue
+            if i in state.locked_bottles:
+                continue
 
             seen_in_bottle = set()
             for color in bottle:
-                seen_in_bottle.add(color)
+                if color != Color.UNKNOWN:
+                    seen_in_bottle.add(color)
             for color in seen_in_bottle:
                 color_bottles[color] = color_bottles.get(color, 0) + 1
 
-        # Each color spread across N bottles needs at least N-1 moves
-        return sum(count - 1 for count in color_bottles.values())
+            # Count color-change boundaries (each needs at least 1 pour)
+            for j in range(1, len(bottle)):
+                if bottle[j] != bottle[j - 1]:
+                    disruption += 1
+
+        fragmentation = sum(count - 1 for count in color_bottles.values())
+        base = max(fragmentation, disruption)
+
+        # Lock deficit: penalize being far from meeting lock conditions
+        lock_penalty = 0
+        for bottle_idx, lock_cond in state.lock_conditions.items():
+            if bottle_idx not in state.locked_bottles:
+                continue  # Already unlocked
+            if lock_cond.color is not None:
+                have = state.completed_colors.get(lock_cond.color, 0)
+                need = lock_cond.count - have
+                if need > 0:
+                    # Each missing completed bottle needs at least 4 moves
+                    # to gather scattered pieces (admissible lower bound)
+                    lock_penalty += need * 4
+
+        return base + lock_penalty
 
     def _unknown_bonus(self, state: GameState) -> float:
         """
