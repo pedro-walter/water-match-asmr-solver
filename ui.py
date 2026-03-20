@@ -41,7 +41,7 @@ class ConsoleUI:
     def __init__(self):
         self.move_count = 0
         self.bottle_width = 8  # Width of a bottle display including borders
-        self.bottle_height = 7  # Height of a bottle display (label + borders + 4 content)
+        self.bottle_height = 8  # Height of a bottle display (label + borders + 4 content + blank separator)
 
     def clear_screen(self):
         """Clear the terminal screen."""
@@ -183,6 +183,9 @@ class ConsoleUI:
             lines.append("└────┘ ✓")
         else:
             lines.append("└────┘  ")
+
+        # Line 7: Blank separator (makes bottle_height=8, so gap=1.0 = 8 lines, gap=0.5 = 4 lines)
+        lines.append("        ")
 
         return lines
 
