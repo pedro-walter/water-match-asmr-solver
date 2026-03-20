@@ -171,7 +171,10 @@ class ConsoleUI:
 
             # Add cursor if this is the selected slot
             if show_cursor and cursor_slot is not None and level == cursor_slot:
-                lines.append(f"│ {symbol} │< ")
+                if level < len(bottle.contents):
+                    lines.append(f"│ {symbol} │< ")
+                else:
+                    lines.append("│    │< ")
             else:
                 if level < len(bottle.contents):
                     lines.append(f"│ {symbol} │  ")
