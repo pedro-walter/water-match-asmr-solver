@@ -219,8 +219,8 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
         while not play_area.is_game_complete():
             # 3a. Solve until unknown or completion
             print(f"Starting solver (max {max_iterations:,} iterations)...")
-            moves, status = solver.solve_until_unknown(max_iterations=max_iterations,
-                                                      progress_callback=progress_callback)
+            moves, status = solver.solve_parallel(max_iterations=max_iterations,
+                                                  progress_callback=progress_callback)
 
             if status == "TIMEOUT" or status == "NO_SOLUTION" or (status == "BOTTLE_UNLOCKED" and not moves):
                 # Detailed message already shown by progress_callback
