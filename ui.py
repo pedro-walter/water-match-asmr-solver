@@ -75,7 +75,7 @@ class ConsoleUI:
 
         print()
 
-    def _render_columns(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None):
+    def _render_columns(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None, show_gap_markers=False):
         """Render bottles in vertical column layout with skew offsets."""
         if not play_area.column_layout:
             return
@@ -83,6 +83,8 @@ class ConsoleUI:
         # Calculate positions for each bottle
         bottle_positions = {}  # Maps bottle_number to (row_start, col_index)
         max_row = 0
+        # gap_markers: grid_row -> list of (col_idx, gap_value) for show_gap_markers mode
+        gap_markers = {}
 
         for col_idx, column_info in enumerate(play_area.column_layout):
             skew = column_info['skew']
@@ -104,6 +106,15 @@ class ConsoleUI:
                 bottle_positions[bottle_num] = (row_start, col_idx)
                 max_row = max(max_row, row_start + self.bottle_height)
 
+                # Track gap marker for the gap immediately before this bottle
+                if show_gap_markers and bottle_position < len(gaps):
+                    gap_val = gaps[bottle_position]
+                    gap_rows = int(gap_val * 8)
+                    if gap_rows > 0:
+                        gap_start = row_start - gap_rows
+                        mid_row = gap_start + gap_rows // 2
+                        gap_markers.setdefault(mid_row, []).append((col_idx, gap_val))
+
         # Create grid: list of lines, each line has slots for each column
         num_columns = len(play_area.column_layout)
         grid = [[' ' * self.bottle_width for _ in range(num_columns)] for _ in range(max_row)]
@@ -124,8 +135,13 @@ class ConsoleUI:
             for line_offset, line_text in enumerate(bottle_lines):
                 grid[row_start + line_offset][col_idx] = line_text
 
-        # Render grid
-        for row in grid:
+        # Render grid, injecting gap markers into the blank rows between bottles
+        for row_idx, row in enumerate(grid):
+            if show_gap_markers and row_idx in gap_markers:
+                for col_idx, gap_val in gap_markers[row_idx]:
+                    visible = f"↕{gap_val:.1f}"
+                    marker = f"\033[2m{visible:<{self.bottle_width}}\033[0m"
+                    row[col_idx] = marker
             print('  '.join(row))
 
     def _get_bottle_lines(self, bottle: Bottle, is_locked: bool, show_cursor: bool = False, cursor_slot: int = None) -> list:
