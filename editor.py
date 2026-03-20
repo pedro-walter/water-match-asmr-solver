@@ -664,12 +664,15 @@ def _handle_move(user_input: str, play_area: PlayArea, ui: ConsoleUI, show_feedb
 
 
 def _handle_renumber(play_area: PlayArea, ui: ConsoleUI, show_feedback=None):
-    """Handle 'renumber' command - renumber bottles by row layout."""
-    if not play_area.row_layout:
-        raise ValueError("No row layout active. Use 'layout rows' first.")
-
-    play_area.renumber_bottles_by_rows()
-    _show_msg(show_feedback, ui, "Bottles renumbered sequentially by row", "success")
+    """Handle 'renumber' command - renumber bottles by current layout order."""
+    if play_area.column_layout:
+        play_area.renumber_bottles_by_columns()
+        _show_msg(show_feedback, ui, "Bottles renumbered sequentially by column", "success")
+    elif play_area.row_layout:
+        play_area.renumber_bottles_by_rows()
+        _show_msg(show_feedback, ui, "Bottles renumbered sequentially by row", "success")
+    else:
+        raise ValueError("No layout active. Use 'layout rows' or 'layout cols' first.")
 
 
 def _handle_layout_cols(play_area: PlayArea, ui: ConsoleUI, show_feedback=None):
@@ -963,7 +966,7 @@ def _print_help():
     print("  col N gap M    Show current gap at position M")
     print("  move N col M   Move bottle N to column M")
     print("  move N row M   Move bottle N to row M (auto-renumbers)")
-    print("  renumber       Renumber all bottles sequentially by row")
+    print("  renumber       Renumber all bottles sequentially by current layout order")
     print()
     print("Puzzle Management:")
     print("  save [FILE]    Save puzzle to JSON file (or ask to overwrite original)")

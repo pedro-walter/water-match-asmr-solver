@@ -91,17 +91,18 @@ class ConsoleUI:
             bottle_indices = column_info['bottle_indices']
             gaps = column_info.get('gaps', [])
 
-            # Calculate row offset from skew (skew of 1.0 = 4 content rows = 8 lines)
-            skew_offset = int(skew * 8)
+            # skew of 1.0 = one full bottle height of vertical offset
+            skew_offset = round(skew * self.bottle_height)
 
             for bottle_position, bottle_num in enumerate(bottle_indices):
                 # Calculate cumulative gap offset (sum of all gaps before and at this bottle position)
+                # gap of 1.0 = exactly one bottle height; use round() so 0.5 stays a clean half
                 gap_offset = 0
                 for i in range(bottle_position + 1):
                     if i < len(gaps):
-                        gap_offset += int(gaps[i] * 8)
+                        gap_offset += round(gaps[i] * self.bottle_height)
 
-                # Each bottle takes 7 rows, bottles stack downward
+                # Each bottle takes bottle_height rows, bottles stack downward
                 row_start = skew_offset + gap_offset + (bottle_position * self.bottle_height)
                 bottle_positions[bottle_num] = (row_start, col_idx)
                 max_row = max(max_row, row_start + self.bottle_height)
@@ -109,7 +110,7 @@ class ConsoleUI:
                 # Track gap marker for the gap immediately before this bottle
                 if show_gap_markers and bottle_position < len(gaps):
                     gap_val = gaps[bottle_position]
-                    gap_rows = int(gap_val * 8)
+                    gap_rows = round(gap_val * self.bottle_height)
                     if gap_rows > 0:
                         gap_start = row_start - gap_rows
                         mid_row = gap_start + gap_rows // 2

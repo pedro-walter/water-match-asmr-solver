@@ -430,5 +430,39 @@ class PlayArea:
 
         self.update_locks()
 
+    def renumber_bottles_by_columns(self) -> None:
+        """
+        Renumber all bottles sequentially based on their column positions.
+        Column 0 gets numbers 0, 1, 2, … (top to bottom),
+        Column 1 continues from there, and so on.
+        """
+        if not self.column_layout:
+            return
+
+        number_map = {}
+        new_number = 0
+
+        for column in self.column_layout:
+            for old_number in column['bottle_indices']:
+                number_map[old_number] = new_number
+                new_number += 1
+
+        for bottle in self.bottles:
+            if bottle.number in number_map:
+                bottle.number = number_map[bottle.number]
+
+        for column in self.column_layout:
+            column['bottle_indices'] = [number_map.get(n, n) for n in column['bottle_indices']]
+
+        new_lock_conditions = {}
+        for old_num, lock in self.lock_conditions.items():
+            new_lock_conditions[number_map.get(old_num, old_num)] = lock
+        self.lock_conditions = new_lock_conditions
+
+        new_completed = {number_map.get(n, n) for n in self.completed_bottles}
+        self.completed_bottles = new_completed
+
+        self.update_locks()
+
     def __repr__(self):
         return f"PlayArea(bottles={len(self.bottles)}, completed={len(self.completed_bottles)})"
