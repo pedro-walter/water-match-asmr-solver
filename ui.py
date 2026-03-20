@@ -21,6 +21,10 @@ COLOR_CODES = {
 RESET = "\033[0m"
 BOLD = "\033[1m"
 
+# Highlight colors for move source/destination bottles
+HIGHLIGHT_GREEN = "\033[92m"  # Source bottle border
+HIGHLIGHT_RED = "\033[91m"    # Destination bottle border
+
 # Color symbols using colored blocks
 COLOR_SYMBOLS = {
     Color.RED: "🟥",
@@ -47,13 +51,16 @@ class ConsoleUI:
         """Clear the terminal screen."""
         os.system('clear' if os.name != 'nt' else 'cls')
 
-    def render_game(self, play_area: PlayArea, message: str = ""):
+    def render_game(self, play_area: PlayArea, message: str = "",
+                    highlight_from: int = None, highlight_to: int = None):
         """
         Display the complete game state.
 
         Args:
             play_area: The PlayArea to render
             message: Optional message to display
+            highlight_from: Bottle index to highlight green (source)
+            highlight_to: Bottle index to highlight red (destination)
         """
         self.clear_screen()
 
@@ -65,17 +72,24 @@ class ConsoleUI:
             print(message)
             print()
 
+        # Build highlight set: index -> ANSI color code
+        highlights = {}
+        if highlight_from is not None:
+            highlights[highlight_from] = HIGHLIGHT_GREEN
+        if highlight_to is not None:
+            highlights[highlight_to] = HIGHLIGHT_RED
+
         # Use appropriate layout: column, row, or default horizontal
         if play_area.column_layout:
-            self._render_columns(play_area)
+            self._render_columns(play_area, highlights=highlights)
         elif play_area.row_layout:
-            self._render_rows(play_area)
+            self._render_rows(play_area, highlights=highlights)
         else:
-            self._render_bottles_row(play_area)
+            self._render_bottles_row(play_area, highlights=highlights)
 
         print()
 
-    def _render_columns(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None, show_gap_markers=False):
+    def _render_columns(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None, show_gap_markers=False, highlights=None, show_col_numbers=False):
         """Render bottles in vertical column layout with skew offsets."""
         if not play_area.column_layout:
             return
@@ -121,20 +135,27 @@ class ConsoleUI:
         grid = [[' ' * self.bottle_width for _ in range(num_columns)] for _ in range(max_row)]
 
         # Place each bottle in the grid
-        for bottle in play_area.bottles:
+        highlights = highlights or {}
+        for bottle_idx, bottle in enumerate(play_area.bottles):
             if bottle.number not in bottle_positions:
                 continue
 
             row_start, col_idx = bottle_positions[bottle.number]
             is_locked = play_area.is_bottle_locked(bottle.number)
+            hl = highlights.get(bottle_idx)
 
             # Generate bottle lines with cursor info
             show_cursor = cursor_bottle is not None and cursor_slot is not None and bottle == cursor_bottle
-            bottle_lines = self._get_bottle_lines(bottle, is_locked, show_cursor, cursor_slot if show_cursor else None)
+            bottle_lines = self._get_bottle_lines(bottle, is_locked, show_cursor, cursor_slot if show_cursor else None, highlight=hl)
 
             # Place in grid
             for line_offset, line_text in enumerate(bottle_lines):
                 grid[row_start + line_offset][col_idx] = line_text
+
+        # Print column number headers if in editor mode
+        if show_col_numbers:
+            col_header = '  '.join(f"{'C' + str(i+1):^{self.bottle_width}}" for i in range(num_columns))
+            print(f"\033[2m{col_header}\033[0m")
 
         # Render grid, injecting gap markers into the blank rows between bottles
         for row_idx, row in enumerate(grid):
@@ -145,21 +166,24 @@ class ConsoleUI:
                     row[col_idx] = marker
             print('  '.join(row))
 
-    def _get_bottle_lines(self, bottle: Bottle, is_locked: bool, show_cursor: bool = False, cursor_slot: int = None) -> list:
-        """Get the 7 lines for displaying a bottle. Optionally show cursor at cursor_slot."""
+    def _get_bottle_lines(self, bottle: Bottle, is_locked: bool, show_cursor: bool = False, cursor_slot: int = None, highlight: str = None) -> list:
+        """Get the 8 lines for displaying a bottle. Optionally show cursor at cursor_slot.
+        If highlight is set (an ANSI color code), borders are colored."""
         lines = []
+        h = highlight or ""
+        r = RESET if highlight else ""
 
         # Line 0: Label (two spaces after #XX in both cases)
         if is_locked:
-            label = f"  #{bottle.number} 🔒"
+            label = f"  {h}#{bottle.number}{r} 🔒"
         else:
-            label = f"  #{bottle.number}   "
+            label = f"  {h}#{bottle.number}{r}   "
         if bottle.number < 10:
             label += " "
         lines.append(label)
 
         # Line 1: Top border
-        lines.append("┌────┐  ")
+        lines.append(f"{h}┌────┐{r}  ")
 
         # Lines 2-5: Content (4 levels from top to bottom)
         for level in range(3, -1, -1):
@@ -172,77 +196,87 @@ class ConsoleUI:
             # Add cursor if this is the selected slot
             if show_cursor and cursor_slot is not None and level == cursor_slot:
                 if level < len(bottle.contents):
-                    lines.append(f"│ {symbol} │< ")
+                    lines.append(f"{h}│{r} {symbol} {h}│{r}< ")
                 else:
-                    lines.append("│    │< ")
+                    lines.append(f"{h}│{r}    {h}│{r}< ")
             else:
                 if level < len(bottle.contents):
-                    lines.append(f"│ {symbol} │  ")
+                    lines.append(f"{h}│{r} {symbol} {h}│{r}  ")
                 else:
-                    lines.append("│    │  ")
+                    lines.append(f"{h}│{r}    {h}│{r}  ")
 
         # Line 6: Bottom border
         if bottle.is_complete:
-            lines.append("└────┘ ✓")
+            lines.append(f"{h}└────┘{r} ✓")
         else:
-            lines.append("└────┘  ")
+            lines.append(f"{h}└────┘{r}  ")
 
         # Line 7: Blank separator (makes bottle_height=8, so gap=1.0 = 8 lines, gap=0.5 = 4 lines)
         lines.append("        ")
 
         return lines
 
-    def _render_bottles_row(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None):
+    def _render_bottles_row(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None, highlights=None):
         """Render all bottles in a row. Optionally show cursor at cursor_bottle/cursor_slot."""
         bottles = play_area.bottles
-
-        # Build the display line by line
+        highlights = highlights or {}
         lines = []
 
-        # Header line with bottle numbers (two spaces after #XX)
+        # Header line with bottle numbers
         header = ""
-        for bottle in bottles:
+        for idx, bottle in enumerate(bottles):
             is_locked = play_area.is_bottle_locked(bottle.number)
+            hl = highlights.get(idx)
+            h = hl or ""
+            r = RESET if hl else ""
             lock_icon = "  🔒" if is_locked else ""
-            header += f"#{bottle.number}  {lock_icon}      "
+            header += f"{h}#{bottle.number}{r}  {lock_icon}      "
         lines.append(header)
 
         # Top border
         border_top = ""
-        for _ in bottles:
-            border_top += "┌────┐         "
+        for idx, _ in enumerate(bottles):
+            hl = highlights.get(idx)
+            h = hl or ""
+            r = RESET if hl else ""
+            border_top += f"{h}┌────┐{r}         "
         lines.append(border_top)
 
         # Content lines (4 levels from top to bottom)
         for level in range(3, -1, -1):
             line = ""
-            for bottle in bottles:
+            for idx, bottle in enumerate(bottles):
+                hl = highlights.get(idx)
+                h = hl or ""
+                r = RESET if hl else ""
+
                 if level < len(bottle.contents):
                     color = bottle.contents[level]
                     symbol = COLOR_SYMBOLS.get(color, "?")
                 else:
                     symbol = " "
 
-                # Add cursor if this is the selected slot
                 if cursor_bottle is not None and cursor_slot is not None and bottle == cursor_bottle and level == cursor_slot:
-                    line += f"│ {symbol} │<        "
+                    line += f"{h}│{r} {symbol} {h}│{r}<        "
                 else:
                     if level < len(bottle.contents):
-                        line += f"│ {symbol} │         "
+                        line += f"{h}│{r} {symbol} {h}│{r}         "
                     else:
-                        line += "│    │         "
+                        line += f"{h}│{r}    {h}│{r}         "
             lines.append(line)
 
         # Bottom border
         border_bottom = ""
-        for bottle in bottles:
+        for idx, bottle in enumerate(bottles):
+            hl = highlights.get(idx)
+            h = hl or ""
+            r = RESET if hl else ""
             if bottle.is_complete:
-                border_bottom += "└────┘ ✓       "
+                border_bottom += f"{h}└────┘{r} ✓       "
             else:
-                border_bottom += "└────┘         "
+                border_bottom += f"{h}└────┘{r}         "
         lines.append(border_bottom)
 
-        # Print all lines
         for line in lines:
             print(line)
 
@@ -272,30 +306,36 @@ class ConsoleUI:
         else:
             print("└────┘")
 
-    def _render_rows(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None):
+    def _render_rows(self, play_area: PlayArea, cursor_bottle=None, cursor_slot=None, highlights=None, show_row_numbers=False):
         """Render bottles organized in rows (stacked vertically). Optionally show cursor."""
         if not play_area.row_layout:
             return
 
+        highlights = highlights or {}
+        # Map bottle number -> index for highlight lookup
+        num_to_idx = {b.number: i for i, b in enumerate(play_area.bottles)}
+
         for row_idx, row_info in enumerate(play_area.row_layout):
             bottle_indices = row_info['bottle_indices']
+            if show_row_numbers:
+                print(f"\033[2mR{row_idx + 1}\033[0m")
             if not bottle_indices:
-                # Show empty row indicator instead of skipping
                 print(f"[Row {row_idx + 1}: empty]")
                 continue
 
-            # Get bottles for this row, maintaining the order from bottle_indices
             bottle_map = {b.number: b for b in play_area.bottles}
             row_bottles = [bottle_map[num] for num in bottle_indices if num in bottle_map]
 
-            # Build the display line by line for this row
             lines = []
 
             # Header line with bottle numbers
             header = ""
             for bottle in row_bottles:
                 is_locked = play_area.is_bottle_locked(bottle.number)
-                header += f" #{bottle.number}"
+                hl = highlights.get(num_to_idx.get(bottle.number))
+                h = hl or ""
+                r = RESET if hl else ""
+                header += f" {h}#{bottle.number}{r}"
                 if bottle.number < 10:
                     header += " "
                 if is_locked:
@@ -306,44 +346,51 @@ class ConsoleUI:
 
             # Top border
             border_top = ""
-            for _ in row_bottles:
-                border_top += "┌────┐   "
+            for bottle in row_bottles:
+                hl = highlights.get(num_to_idx.get(bottle.number))
+                h = hl or ""
+                r = RESET if hl else ""
+                border_top += f"{h}┌────┐{r}   "
             lines.append(border_top)
 
             # Content lines (4 levels from top to bottom)
             for level in range(3, -1, -1):
                 line = ""
                 for bottle in row_bottles:
+                    hl = highlights.get(num_to_idx.get(bottle.number))
+                    h = hl or ""
+                    r = RESET if hl else ""
+
                     if level < len(bottle.contents):
                         color = bottle.contents[level]
                         symbol = COLOR_SYMBOLS.get(color, "?")
                     else:
                         symbol = " "
 
-                    # Add cursor if this is the selected slot
                     if cursor_bottle is not None and cursor_slot is not None and bottle == cursor_bottle and level == cursor_slot:
-                        line += f"│ {symbol} │<  "
+                        line += f"{h}│{r} {symbol} {h}│{r}<  "
                     else:
                         if level < len(bottle.contents):
-                            line += f"│ {symbol} │   "
+                            line += f"{h}│{r} {symbol} {h}│{r}   "
                         else:
-                            line += "│    │   "
+                            line += f"{h}│{r}    {h}│{r}   "
                 lines.append(line)
 
             # Bottom border
             border_bottom = ""
             for bottle in row_bottles:
+                hl = highlights.get(num_to_idx.get(bottle.number))
+                h = hl or ""
+                r = RESET if hl else ""
                 if bottle.is_complete:
-                    border_bottom += "└────┘ ✓ "
+                    border_bottom += f"{h}└────┘{r} ✓ "
                 else:
-                    border_bottom += "└────┘   "
+                    border_bottom += f"{h}└────┘{r}   "
             lines.append(border_bottom)
 
-            # Print all lines for this row
             for line in lines:
                 print(line)
 
-            # Add spacing between rows
             if row_idx < len(play_area.row_layout) - 1:
                 print()
 
@@ -361,8 +408,11 @@ class ConsoleUI:
         from_bottle = play_area.bottles[from_idx]
         to_bottle = play_area.bottles[to_idx]
 
-        message = f"{BOLD}Move #{self.move_count}:{RESET} Bottle #{from_bottle.number} → Bottle #{to_bottle.number}"
-        self.render_game(play_area, message)
+        message = (f"{BOLD}Move #{self.move_count}:{RESET} "
+                   f"{HIGHLIGHT_GREEN}Bottle #{from_bottle.number}{RESET} → "
+                   f"{HIGHLIGHT_RED}Bottle #{to_bottle.number}{RESET}")
+        self.render_game(play_area, message,
+                        highlight_from=from_idx, highlight_to=to_idx)
 
     def prompt_for_revealed_color(self, bottle_number: int = None, unknown_count: int = 1) -> tuple:
         """
@@ -537,9 +587,9 @@ class ConsoleUI:
         else:
             print(f"{BOLD}🔓 Bottle #{bottle_number} unlocked! It appears empty in the puzzle file.{RESET}")
         print("What are its contents? Enter colors from bottom to top.")
-        print("Format: space-separated colors or mnemonics (e.g., 'R G B Y' or 'RED GREEN BLUE YELLOW')")
+        print("Format: compact string (e.g., 'JJCY'), space-separated (e.g., 'R G B Y'), or full names")
         print("Press Enter if the bottle is genuinely empty.")
-        print("Available: RED(R), PURPLE(P), GREY(A), GREEN(G), YELLOW(Y), ORANGE(O), BLUE(U), CYAN(C), UNKNOWN(?)")
+        print("Available: RED(R), PURPLE(P), GREY(A), GREEN(G), YELLOW(Y), ORANGE(O), BLUE(U), CYAN(C), UNKNOWN(J/?)")
         print()
 
         while True:
@@ -550,16 +600,15 @@ class ConsoleUI:
                     return []
 
                 colors = []
-                valid = True
-                for part in user_input.split():
-                    if part in COLOR_MNEMONICS:
-                        color = COLOR_MNEMONICS[part]
-                    else:
-                        color = color_from_string(part)
-                    colors.append(color)
-
-                if not valid:
-                    continue
+                # If no spaces and every char is a valid mnemonic, parse as compact string
+                if ' ' not in user_input and all(ch in COLOR_MNEMONICS for ch in user_input):
+                    colors = [COLOR_MNEMONICS[ch] for ch in user_input]
+                else:
+                    for part in user_input.split():
+                        if part in COLOR_MNEMONICS:
+                            colors.append(COLOR_MNEMONICS[part])
+                        else:
+                            colors.append(color_from_string(part))
 
                 if len(colors) > 4:
                     print("A bottle can hold at most 4 colors. Please re-enter.")
@@ -570,15 +619,25 @@ class ConsoleUI:
             except ValueError:
                 print("Invalid input. Please try again.")
 
-    def prompt_continue(self, message: str = "Press Enter to continue (or 's' to save, 'e' to edit)...") -> str:
+    def prompt_continue(self, message: str = None, can_rewind: bool = False) -> str:
         """
-        Prompt the user to continue, save, or edit.
+        Prompt the user to continue, save, rewind, or edit.
+
+        Args:
+            message: Custom prompt message (auto-generated if None)
+            can_rewind: Whether 'b' (back) is available
 
         Returns:
             's' if user wants to save
             'e' if user wants to edit
+            'b' if user wants to go back
             empty string otherwise
         """
+        if message is None:
+            opts = "'s' save, 'e' edit"
+            if can_rewind:
+                opts += ", 'b' back"
+            message = f"[Enter] next ({opts})... "
         response = input(message).strip().lower()
         return response
 

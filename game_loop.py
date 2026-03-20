@@ -305,8 +305,12 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                 ui.show_message("Solver returned no moves", "error")
                 break
 
-            # 3b. Execute moves step by step
-            for i, move in enumerate(moves):
+            # 3b. Execute moves step by step with rewind support
+            # History: list of (play_area_snapshot, move, move_count_snapshot) before each move
+            move_history = []
+            i = 0
+            while i < len(moves):
+                move = moves[i]
                 from_idx, to_idx = move
 
                 # Note which bottles are locked before this move (needed for BOTTLE_UNLOCKED detection)
@@ -315,10 +319,14 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                     if play_area.is_bottle_locked(b.number)
                 }
 
+                # Save snapshot before applying (for rewind)
+                move_history.append((play_area.clone(), ui.move_count))
+
                 # Apply the move
                 success = play_area.apply_move(from_idx, to_idx)
 
                 if not success:
+                    move_history.pop()  # Remove the snapshot for failed move
                     move_fail_count += 1
                     ui.show_message(
                         f"Failed to apply move: {from_idx} → {to_idx} "
@@ -509,7 +517,7 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
 
                 # Pause for visualization
                 if interactive:
-                    response = ui.prompt_continue()
+                    response = ui.prompt_continue(can_rewind=len(move_history) > 0)
                     if response == 's':
                         save_current_state(play_area, json_filepath, ui)
                     elif response == 'e':
@@ -517,8 +525,20 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                         from editor import run_editor
                         run_editor(json_filepath)
                         return
+                    elif response == 'b' and move_history:
+                        # Rewind: restore previous state
+                        prev_area, prev_move_count = move_history.pop()
+                        play_area = prev_area
+                        ui.move_count = prev_move_count
+                        solver.resume_from(play_area)
+                        ui.render_game(play_area, f"Rewound to move #{prev_move_count}")
+                        # Step back so the next iteration replays this move
+                        i -= 1
+                        continue
                 else:
                     time.sleep(delay)
+
+                i += 1
 
             # Check if game is complete after this batch of moves
             if play_area.is_game_complete():

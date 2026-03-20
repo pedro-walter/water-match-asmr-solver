@@ -1,173 +1,186 @@
 {
   "bottles": [
     {
-      "number": 1,
-      "contents": [
-        "CYAN",
-        "ORANGE",
-        "RED"
-      ],
-      "lock_condition": {
-        "count": 2,
-        "color": "GREY"
-      }
-    },
-    {
       "number": 0,
       "contents": [
-        "GREEN",
-        "GREEN",
-        "GREY"
-      ],
-      "lock_condition": {
-        "count": 2,
-        "color": "ANY"
-      }
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "CYAN"
+      ]
+    },
+    {
+      "number": 1,
+      "contents": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "YELLOW"
+      ]
     },
     {
       "number": 2,
       "contents": [
-        "GREY",
-        "GREY",
-        "PURPLE",
-        "CYAN"
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "PURPLE"
       ]
     },
     {
       "number": 3,
       "contents": [
-        "CYAN",
-        "YELLOW",
-        "GREY",
-        "BLUE"
+        "UNKNOWN",
+        "UNKNOWN",
+        "RED",
+        "GREEN"
       ]
     },
     {
       "number": 4,
       "contents": [
-        "YELLOW",
-        "ORANGE"
+        "UNKNOWN",
+        "UNKNOWN",
+        "CYAN",
+        "GREY"
       ]
     },
     {
       "number": 5,
       "contents": [
-        "PURPLE",
-        "RED",
+        "UNKNOWN",
+        "UNKNOWN",
         "BLUE",
         "BLUE"
       ]
     },
     {
       "number": 6,
-      "contents": [
-        "PURPLE",
-        "YELLOW",
-        "RED",
-        "PURPLE"
-      ]
+      "contents": [],
+      "lock_condition": {
+        "count": 2,
+        "color": "RED"
+      }
     },
     {
       "number": 7,
       "contents": [
-        "ORANGE",
-        "GREEN",
-        "GREY",
+        "UNKNOWN",
+        "UNKNOWN",
+        "YELLOW",
         "PURPLE"
       ]
     },
     {
       "number": 8,
       "contents": [
-        "BLUE",
-        "CYAN",
-        "CYAN",
-        "RED"
+        "RED",
+        "ORANGE"
       ]
     },
     {
       "number": 9,
       "contents": [
+        "UNKNOWN",
+        "UNKNOWN",
         "BLUE",
-        "RED",
-        "YELLOW",
-        "ORANGE"
+        "RED"
       ]
     },
     {
       "number": 10,
       "contents": [
-        "BLUE",
-        "PURPLE"
+        "UNKNOWN",
+        "UNKNOWN",
+        "GREY",
+        "YELLOW"
       ]
     },
     {
       "number": 11,
       "contents": [
-        "GREY",
-        "GREEN",
-        "RED",
-        "CYAN"
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "PURPLE"
       ]
     },
     {
       "number": 12,
       "contents": [
-        "YELLOW",
-        "PURPLE",
-        "GREEN",
-        "GREEN"
+        "UNKNOWN",
+        "UNKNOWN",
+        "RED",
+        "GREY"
       ]
     },
     {
       "number": 13,
       "contents": [
-        "ORANGE",
-        "CYAN",
-        "PURPLE",
-        "CYAN"
+        "GREY",
+        "GREEN"
       ]
     },
     {
       "number": 14,
       "contents": [
-        "BLUE",
-        "YELLOW",
-        "RED"
-      ],
-      "lock_condition": {
-        "count": 2,
-        "color": "ORANGE"
-      }
+        "UNKNOWN",
+        "UNKNOWN",
+        "RED",
+        "GREY"
+      ]
     },
     {
       "number": 15,
       "contents": [
-        "GREY",
-        "RED",
-        "GREEN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
         "YELLOW"
       ]
     },
     {
       "number": 16,
       "contents": [
-        "ORANGE",
-        "BLUE",
-        "GREY",
-        "YELLOW"
+        "UNKNOWN",
+        "UNKNOWN",
+        "GREEN",
+        "RED"
       ]
     },
     {
       "number": 17,
       "contents": [
-        "ORANGE",
-        "GREEN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "GREEN"
+      ]
+    },
+    {
+      "number": 18,
+      "contents": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "CYAN"
+      ]
+    },
+    {
+      "number": 19,
+      "contents": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
         "ORANGE"
-      ],
+      ]
+    },
+    {
+      "number": 20,
+      "contents": [],
       "lock_condition": {
         "count": 2,
-        "color": "ANY"
+        "color": "GREEN"
       }
     }
   ],
@@ -178,63 +191,60 @@
         1.0
       ],
       "bottle_indices": [
-        0
-      ]
-    },
-    {
-      "skew": 0.0,
-      "gaps": [
-        0.0,
-        0.5,
-        0.5
-      ],
-      "bottle_indices": [
+        0,
         1,
-        2,
-        3
-      ]
-    },
-    {
-      "skew": 0.0,
-      "gaps": [],
-      "bottle_indices": [
-        4,
-        5,
-        6,
-        7
+        2
       ]
     },
     {
       "skew": 0.0,
       "gaps": [
-        1.5
-      ],
-      "bottle_indices": [
-        8,
-        9
-      ]
-    },
-    {
-      "skew": 0.0,
-      "gaps": [],
-      "bottle_indices": [
-        10,
-        11,
-        12,
-        13
-      ]
-    },
-    {
-      "skew": 0.0,
-      "gaps": [
-        0.0,
-        0.5,
         0.5
       ],
       "bottle_indices": [
-        14,
+        3,
+        4,
+        6
+      ]
+    },
+    {
+      "skew": 0.0,
+      "gaps": [],
+      "bottle_indices": [
+        7,
+        8,
+        5
+      ]
+    },
+    {
+      "skew": 0.0,
+      "gaps": [],
+      "bottle_indices": [
+        9,
+        10,
+        11
+      ]
+    },
+    {
+      "skew": 0.0,
+      "gaps": [
+        0.0
+      ],
+      "bottle_indices": [
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "skew": 0.0,
+      "gaps": [
+        0.5
+      ],
+      "bottle_indices": [
         15,
-        16
+        16,
+        20
       ]
     },
     {
@@ -243,7 +253,9 @@
         1.0
       ],
       "bottle_indices": [
-        17
+        17,
+        18,
+        19
       ]
     }
   ]
