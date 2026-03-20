@@ -265,8 +265,17 @@ class PlayArea:
             if bottle.is_complete
         )
 
+        # Convert lock_conditions from bottle-NUMBER keys to bottle-INDEX keys
+        # so GameState.apply_move can use them consistently with indices
+        number_to_index = {bottle.number: i for i, bottle in enumerate(self.bottles)}
+        index_lock_conditions = {
+            number_to_index[num]: cond
+            for num, cond in self.lock_conditions.items()
+            if num in number_to_index
+        }
+
         return GameState(bottles_tuple, locked_bottles, completed_bottles,
-                        self.completed_colors, self.lock_conditions)
+                        self.completed_colors, index_lock_conditions)
 
     def clone(self) -> 'PlayArea':
         """

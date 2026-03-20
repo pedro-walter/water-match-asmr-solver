@@ -212,11 +212,17 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
             print()
 
         # 3. Interactive solving loop
+        move_fail_count = 0
+        MAX_MOVE_FAILURES = 3
+
         def progress_callback(iteration, queue_size, explored, status):
             """Callback to show solver progress."""
             ui.show_progress(iteration, queue_size, explored, status)
 
         while not play_area.is_game_complete():
+            if move_fail_count >= MAX_MOVE_FAILURES:
+                break
+
             # 3a. Solve until unknown or completion
             print(f"Starting solver (max {max_iterations:,} iterations)...")
             moves, status = solver.solve_parallel(max_iterations=max_iterations,
@@ -313,8 +319,20 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                 success = play_area.apply_move(from_idx, to_idx)
 
                 if not success:
-                    ui.show_message(f"Failed to apply move: {from_idx} → {to_idx}", "error")
+                    move_fail_count += 1
+                    ui.show_message(
+                        f"Failed to apply move: {from_idx} → {to_idx} "
+                        f"(attempt {move_fail_count}/{MAX_MOVE_FAILURES})",
+                        "error"
+                    )
+                    # Resync solver with actual play_area state before retrying
+                    solver.resume_from(play_area)
+                    if move_fail_count >= MAX_MOVE_FAILURES:
+                        ui.show_message("Too many move failures — stopping solver.", "error")
                     break
+
+                # Move succeeded — reset failure counter
+                move_fail_count = 0
 
                 # Display the move
                 ui.render_move(from_idx, to_idx, play_area)

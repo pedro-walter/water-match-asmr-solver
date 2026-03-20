@@ -103,15 +103,15 @@ class GameState:
 
     def to_key(self) -> bytes:
         """
-        Compact bytes key: 2 color nibbles per byte, empty=15.
+        Compact bytes key: 2 color nibbles per byte, empty=15, UNKNOWN=14.
         N bottles × 4 slots → N*2 bytes (~42 bytes for a 21-bottle puzzle).
         """
         arr = bytearray()
         for bottle in self.bottles:
             padded = list(bottle) + [None] * (4 - len(bottle))
             for k in range(0, 4, 2):
-                c1 = padded[k].value if padded[k] is not None else 15
-                c2 = padded[k + 1].value if padded[k + 1] is not None else 15
+                c1 = 15 if padded[k] is None else (14 if padded[k] == Color.UNKNOWN else padded[k].value)
+                c2 = 15 if padded[k + 1] is None else (14 if padded[k + 1] == Color.UNKNOWN else padded[k + 1].value)
                 arr.append((c1 << 4) | c2)
         return bytes(arr)
 
@@ -545,12 +545,19 @@ class Solver:
         if num_processes is None:
             num_processes = mp.cpu_count()
 
-        partitions = self._generate_partitions(depth=2)
-        n = len(partitions)
+        min_partitions = num_processes * 2
+        partitions = None
+        for depth in range(2, 6):
+            partitions = self._generate_partitions(depth=depth)
+            n = len(partitions)
+            if n >= min_partitions:
+                break
+            if n == 0:
+                break
 
-        if n < num_processes * 2:
-            # Too few partitions to justify process overhead — fall back
-            print(f"Only {n} partitions found, running single-threaded.")
+        n = len(partitions)
+        if n < min_partitions:
+            print(f"Only {n} partitions found (tried up to depth {depth}), running single-threaded.")
             return self.solve_until_unknown(max_iterations, progress_callback)
 
         # Normalise iterations so each core does ≈ max_iterations total work.
