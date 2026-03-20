@@ -6,6 +6,7 @@ Allows users to build puzzles from scratch, edit bottle contents and locks,
 organize bottles into columns, and launch the solver.
 """
 
+import readline
 import re
 import sys
 import termios
@@ -535,20 +536,6 @@ def _handle_add(user_input: str, play_area: PlayArea, ui: ConsoleUI, selected_co
         elif play_area.column_layout:
             # Default to last column if no selection
             play_area.column_layout[-1]['bottle_indices'].append(number)
-
-    # Prompt for optional lock
-    while True:
-        lock_input = input("Lock? (e.g. '2 RED' or '3 ANY', Enter to skip): ").strip()
-        if not lock_input:
-            break
-        try:
-            count, color = _parse_lock_input(lock_input)
-            play_area.set_lock(number, count, color)
-            color_str = 'ANY' if color is None else color.name
-            _show_msg(show_feedback, ui, f"Bottle #{number} added with lock: {count} {color_str}", "success")
-            return
-        except ValueError as e:
-            print(f"Invalid lock: {e}. Try again.")
 
     _show_msg(show_feedback, ui, f"Bottle #{number} added with contents", "success")
 
