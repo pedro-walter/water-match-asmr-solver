@@ -240,6 +240,8 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                         # Restore from the original puzzle we cloned at start
                         play_area = original_play_area.clone()
                         solver = Solver(play_area)
+                        ui.move_count = 0
+                        move_history = []
                         print()
                         print("Puzzle restored to original state. Restarting solver...")
                         print()
@@ -345,12 +347,6 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                 # Display the move
                 ui.render_move(from_idx, to_idx, play_area)
 
-                # Show any hidden slot reveals that happened as part of this move
-                for bottle_num, slot_idx, color in play_area.recently_revealed:
-                    ui.show_message(
-                        f"Hidden slot revealed in bottle #{bottle_num}: {color.name}",
-                        "info"
-                    )
 
                 # Check if this was the last move and it revealed an unknown
                 if i == len(moves) - 1 and status == "UNKNOWN_REVEALED":
@@ -359,7 +355,6 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                     else:
                         time.sleep(delay)
 
-                    from models import Color
                     from_bottle = play_area.bottles[from_idx]
                     to_bottle = play_area.bottles[to_idx]
                     bottle_with_unknown = None
@@ -453,6 +448,14 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                             continue
                         if play_area.is_bottle_locked(bottle.number):
                             continue
+                        # Known-color slots are always visible — strip them from hidden_slots
+                        bottle.hidden_slots = {
+                            i for i in bottle.hidden_slots
+                            if i < len(bottle.contents) and bottle.contents[i] == Color.UNKNOWN
+                        }
+                        original_bottle = original_play_area.get_bottle_by_number(bottle.number)
+                        if original_bottle:
+                            original_bottle.hidden_slots = bottle.hidden_slots.copy()
                         # This bottle was just unlocked — check if contents need to be revealed
                         is_all_unknown = len(bottle.contents) > 0 and all(
                             c == Color.UNKNOWN for c in bottle.contents

@@ -942,25 +942,26 @@ def _handle_play(play_area: PlayArea, ui: ConsoleUI, show_feedback=None, puzzle_
     print("Launching solver...")
     print()
 
-    # Always use temp file, but if puzzle_file exists, update it after solver finishes
     import os
-    temp_filename = ".puzzle_temp.json"
-    play_area.save_to_json(temp_filename)
-
-    try:
-        run_solver(temp_filename, delay=0.5, interactive=True, max_iterations=10000000)
-
-        # If we had an original puzzle file, update it with the revealed unknowns
-        if puzzle_file:
-            updated_play_area = PlayArea.load_from_json(temp_filename)
-            updated_play_area.save_to_json(puzzle_file)
-
-    except Exception as e:
-        _show_msg(show_feedback, ui, f"Solver error: {e}", "error")
-    finally:
-        # Clean up temp file
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
+    if puzzle_file:
+        # Save current editor state to the puzzle file and run solver directly against it,
+        # so reveals and unlocks are persisted to the original file in real time.
+        play_area.save_to_json(puzzle_file)
+        try:
+            run_solver(puzzle_file, delay=0.5, interactive=True, max_iterations=10000000)
+        except Exception as e:
+            _show_msg(show_feedback, ui, f"Solver error: {e}", "error")
+    else:
+        # No file yet — use a temp file for the session
+        temp_filename = ".puzzle_temp.json"
+        play_area.save_to_json(temp_filename)
+        try:
+            run_solver(temp_filename, delay=0.5, interactive=True, max_iterations=10000000)
+        except Exception as e:
+            _show_msg(show_feedback, ui, f"Solver error: {e}", "error")
+        finally:
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)
 
 
 def _handle_quit(ui: ConsoleUI):
