@@ -12,6 +12,8 @@ class PlayArea:
         # Layout metadata for display
         self.column_layout: Optional[List[Dict]] = None  # List of {skew, bottle_indices}
         self.row_layout: Optional[List[Dict]] = None  # List of {bottle_indices} for row mode
+        # Filled by apply_move: list of (bottle_number, slot_idx, color) revealed this move
+        self.recently_revealed: list = []
 
     def add_bottle(self, number: int, contents: list = None):
         """Add a bottle to the play area."""
@@ -43,11 +45,12 @@ class PlayArea:
             number = bottle_data['number']
             contents = [color_from_string(c) for c in bottle_data['contents']]
 
-            bottle = Bottle(number, contents)
+            hidden_slots = set(bottle_data.get('hidden_slots', []))
+            bottle = Bottle(number, contents, hidden_slots)
             play_area.bottles.append(bottle)
 
             # Check if bottle is complete
-            if len(bottle.contents) == 4 and bottle.all_colors_equal() and bottle.contents[-1] != Color.UNKNOWN:
+            if len(bottle.contents) == 4 and bottle.all_colors_equal() and bottle.contents[-1] != Color.UNKNOWN and not bottle.hidden_slots:
                 bottle.is_complete = True
                 play_area.completed_bottles.add(number)
                 color = bottle.contents[0]
@@ -83,6 +86,9 @@ class PlayArea:
                 'number': bottle.number,
                 'contents': [color_to_string(c) for c in bottle.contents]
             }
+
+            if bottle.hidden_slots:
+                bottle_dict['hidden_slots'] = sorted(bottle.hidden_slots)
 
             # Add lock condition if present (simplified format)
             if bottle.number in self.lock_conditions:
@@ -131,7 +137,7 @@ class PlayArea:
                 self.completed_bottles.add(bottle.number)
                 color = bottle.contents[0]
                 self.completed_colors[color] = self.completed_colors.get(color, 0) + 1
-            elif len(bottle.contents) == 4 and bottle.all_colors_equal() and bottle.contents[-1] != Color.UNKNOWN:
+            elif len(bottle.contents) == 4 and bottle.all_colors_equal() and bottle.contents[-1] != Color.UNKNOWN and not bottle.hidden_slots:
                 # Mark as complete if it wasn't already
                 bottle.is_complete = True
                 self.completed_bottles.add(bottle.number)
@@ -210,8 +216,37 @@ class PlayArea:
 
         if success:
             self.update_locks()
+            self.recently_revealed = self._reveal_hidden_slots(from_idx)
 
         return success
+
+    def _reveal_hidden_slots(self, bottle_idx: int) -> list:
+        """
+        After pouring from bottle_idx, reveal any hidden slot now at the top.
+        Also reveals consecutive same-color hidden slots below it.
+        Returns list of (bottle_number, slot_idx, color) for each revealed slot.
+        """
+        bottle = self.bottles[bottle_idx]
+        if not bottle.hidden_slots or not bottle.contents:
+            return []
+
+        top_idx = len(bottle.contents) - 1
+        if top_idx not in bottle.hidden_slots:
+            return []
+
+        revealed_color = bottle.contents[top_idx]
+        bottle.hidden_slots.discard(top_idx)
+        revealed = [(bottle.number, top_idx, revealed_color)]
+
+        # Reveal consecutive same-color hidden slots below
+        for j in range(top_idx - 1, -1, -1):
+            if j in bottle.hidden_slots and bottle.contents[j] == revealed_color:
+                bottle.hidden_slots.discard(j)
+                revealed.append((bottle.number, j, revealed_color))
+            else:
+                break
+
+        return revealed
 
     def is_game_complete(self) -> bool:
         """
@@ -256,6 +291,14 @@ class PlayArea:
         from solver import GameState
 
         bottles_tuple = tuple(bottle.to_tuple() for bottle in self.bottles)
+
+        # Build hidden_slots_state: frozenset of (bottle_idx, slot_idx) pairs
+        hidden_slots_state = frozenset(
+            (i, slot_idx)
+            for i, bottle in enumerate(self.bottles)
+            for slot_idx in bottle.hidden_slots
+            if slot_idx < len(bottle.contents)
+        )
         locked_bottles = frozenset(
             i for i, bottle in enumerate(self.bottles)
             if self.is_bottle_locked(bottle.number)
@@ -275,7 +318,8 @@ class PlayArea:
         }
 
         return GameState(bottles_tuple, locked_bottles, completed_bottles,
-                        self.completed_colors, index_lock_conditions)
+                        self.completed_colors, index_lock_conditions,
+                        hidden_slots_state)
 
     def clone(self) -> 'PlayArea':
         """
@@ -309,7 +353,7 @@ class PlayArea:
         bottle.is_complete = False
 
         # Check if now complete
-        if len(bottle.contents) == 4 and bottle.all_colors_equal() and bottle.contents[-1] != Color.UNKNOWN:
+        if len(bottle.contents) == 4 and bottle.all_colors_equal() and bottle.contents[-1] != Color.UNKNOWN and not bottle.hidden_slots:
             bottle.is_complete = True
 
         self.update_locks()

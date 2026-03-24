@@ -16,23 +16,26 @@ class GameState:
 
     def __init__(self, bottles: tuple, locked_bottles: frozenset,
                  completed_bottles: frozenset, completed_colors: Dict[Color, int],
-                 lock_conditions: Dict[int, 'LockCondition'] = None):
-        self.bottles = bottles  # tuple of tuples
+                 lock_conditions: Dict[int, 'LockCondition'] = None,
+                 hidden_slots_state: frozenset = None):
+        self.bottles = bottles  # tuple of tuples (actual colors, not masked)
         self.locked_bottles = locked_bottles
         self.completed_bottles = completed_bottles
         self.completed_colors = dict(completed_colors)
         self.lock_conditions = lock_conditions or {}
+        # frozenset of (bottle_idx, slot_idx) pairs that are currently hidden
+        self.hidden_slots_state = hidden_slots_state if hidden_slots_state is not None else frozenset()
 
     def __hash__(self):
-        return hash(self.bottles)
+        return hash((self.bottles, self.hidden_slots_state))
 
     def __eq__(self, other):
         if not isinstance(other, GameState):
             return False
-        return self.bottles == other.bottles
+        return self.bottles == other.bottles and self.hidden_slots_state == other.hidden_slots_state
 
     def is_goal(self) -> bool:
-        for bottle_contents in self.bottles:
+        for i, bottle_contents in enumerate(self.bottles):
             if len(bottle_contents) == 0:
                 continue
             if len(bottle_contents) != 4:
@@ -40,6 +43,9 @@ class GameState:
             if not all(c == bottle_contents[0] for c in bottle_contents):
                 return False
             if bottle_contents[0] == Color.UNKNOWN:
+                return False
+            # A bottle with any hidden slot is not complete
+            if any((i, j) in self.hidden_slots_state for j in range(4)):
                 return False
         return True
 
@@ -53,12 +59,20 @@ class GameState:
         if len(to_bottle) == 4:
             return None
 
-        from_color = from_bottle[-1]
+        top_idx = len(from_bottle) - 1
+        # Hidden top: cannot pour (hidden slots are always at bottom, but guard anyway)
+        if (from_idx, top_idx) in self.hidden_slots_state:
+            return None
+
+        from_color = from_bottle[top_idx]
         if len(to_bottle) > 0 and to_bottle[-1] != from_color:
             return None
 
+        # Count consecutive visible same-color slots from top (stop at hidden boundary)
         count = 1
-        for i in range(len(from_bottle) - 2, -1, -1):
+        for i in range(top_idx - 1, -1, -1):
+            if (from_idx, i) in self.hidden_slots_state:
+                break
             if from_bottle[i] == from_color:
                 count += 1
             else:
@@ -74,12 +88,30 @@ class GameState:
 
         new_bottles = tuple(tuple(bottle) for bottle in bottles_list)
 
+        # Auto-reveal hidden slot if it's now the new top of from_bottle
+        new_hidden = set(self.hidden_slots_state)
+        new_from = new_bottles[from_idx]
+        if new_from:
+            new_top = len(new_from) - 1
+            if (from_idx, new_top) in new_hidden:
+                revealed_color = new_from[new_top]
+                new_hidden.discard((from_idx, new_top))
+                # Reveal consecutive same-color hidden slots below
+                for j in range(new_top - 1, -1, -1):
+                    if (from_idx, j) in new_hidden and new_from[j] == revealed_color:
+                        new_hidden.discard((from_idx, j))
+                    else:
+                        break
+        hidden_slots_state_new = frozenset(new_hidden)
+
+        # Completion: full, uniform, no UNKNOWN, no hidden slots remaining
         new_completed = set()
         new_completed_colors = {}
         for i, bottle_contents in enumerate(new_bottles):
             if (len(bottle_contents) == 4 and
                     bottle_contents[0] != Color.UNKNOWN and
-                    all(c == bottle_contents[0] for c in bottle_contents)):
+                    all(c == bottle_contents[0] for c in bottle_contents) and
+                    not any((i, j) in hidden_slots_state_new for j in range(4))):
                 new_completed.add(i)
                 color = bottle_contents[0]
                 new_completed_colors[color] = new_completed_colors.get(color, 0) + 1
@@ -98,13 +130,14 @@ class GameState:
             frozenset(new_locked),
             frozenset(new_completed),
             new_completed_colors,
-            self.lock_conditions
+            self.lock_conditions,
+            hidden_slots_state_new,
         )
 
     def to_key(self) -> bytes:
         """
         Compact bytes key: 2 color nibbles per byte, empty=15, UNKNOWN=14.
-        N bottles × 4 slots → N*2 bytes (~42 bytes for a 21-bottle puzzle).
+        N bottles × 4 slots → N*2 bytes, then sorted hidden (bottle_idx, slot_idx) pairs.
         """
         arr = bytearray()
         for bottle in self.bottles:
@@ -113,6 +146,10 @@ class GameState:
                 c1 = 15 if padded[k] is None else (14 if padded[k] == Color.UNKNOWN else padded[k].value)
                 c2 = 15 if padded[k + 1] is None else (14 if padded[k + 1] == Color.UNKNOWN else padded[k + 1].value)
                 arr.append((c1 << 4) | c2)
+        # Append hidden slots as sorted (bottle_idx, slot_idx) byte pairs
+        for bi, si in sorted(self.hidden_slots_state):
+            arr.append(bi)
+            arr.append(si)
         return bytes(arr)
 
     def __repr__(self):
@@ -149,12 +186,18 @@ class SearchNode:
 # (must be at module level so multiprocessing workers can pickle/call them)
 # ---------------------------------------------------------------------------
 
-def _count_consecutive_top(bottle: tuple) -> int:
+def _count_consecutive_top(bottle: tuple, hidden: frozenset = frozenset(), bottle_idx: int = 0) -> int:
+    """Count consecutive visible same-color slots from the top, stopping at hidden boundaries."""
     if len(bottle) == 0:
         return 0
-    top_color = bottle[-1]
+    top_idx = len(bottle) - 1
+    if (bottle_idx, top_idx) in hidden:
+        return 0  # Top is hidden, cannot pour
+    top_color = bottle[top_idx]
     count = 1
-    for i in range(len(bottle) - 2, -1, -1):
+    for i in range(top_idx - 1, -1, -1):
+        if (bottle_idx, i) in hidden:
+            break
         if bottle[i] == top_color:
             count += 1
         else:
@@ -164,6 +207,7 @@ def _count_consecutive_top(bottle: tuple) -> int:
 
 def _generate_valid_moves(state: GameState) -> List[Tuple[int, int]]:
     valid_moves = []
+    hidden = state.hidden_slots_state
 
     first_empty_idx = None
     for j, bottle in enumerate(state.bottles):
@@ -179,9 +223,17 @@ def _generate_valid_moves(state: GameState) -> List[Tuple[int, int]]:
         if len(from_bottle) == 0:
             continue
 
-        from_color = from_bottle[-1]
-        from_consecutive = _count_consecutive_top(from_bottle)
-        is_uniform = (from_consecutive == len(from_bottle)) and from_color != Color.UNKNOWN
+        top_idx = len(from_bottle) - 1
+        if (i, top_idx) in hidden:
+            continue  # Top is hidden, cannot pour from this bottle
+
+        from_color = from_bottle[top_idx]
+        from_consecutive = _count_consecutive_top(from_bottle, hidden, i)
+        # Uniform: all visible slots are the same color (from_consecutive == visible slot count)
+        visible_len = top_idx + 1  # slots from 0 to top_idx inclusive
+        # Count how many visible slots exist (those not in hidden)
+        visible_count = sum(1 for k in range(visible_len) if (i, k) not in hidden)
+        is_uniform = (from_consecutive == visible_count) and from_color != Color.UNKNOWN
 
         for j, to_bottle in enumerate(state.bottles):
             if i == j:
@@ -215,10 +267,11 @@ def _is_revealing_unknown(state: GameState, move: Tuple[int, int]) -> bool:
     from_bottle = state.bottles[from_idx]
     if len(from_bottle) == 0:
         return False
-    top_color = from_bottle[-1]
+    top_idx = len(from_bottle) - 1
+    top_color = from_bottle[top_idx]
     if top_color == Color.UNKNOWN:
         return True
-    count = _count_consecutive_top(from_bottle)
+    count = _count_consecutive_top(from_bottle, state.hidden_slots_state, from_idx)
     if count < len(from_bottle):
         revealed_idx = len(from_bottle) - count - 1
         if from_bottle[revealed_idx] == Color.UNKNOWN:

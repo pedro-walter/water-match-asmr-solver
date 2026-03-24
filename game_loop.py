@@ -345,6 +345,13 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                 # Display the move
                 ui.render_move(from_idx, to_idx, play_area)
 
+                # Show any hidden slot reveals that happened as part of this move
+                for bottle_num, slot_idx, color in play_area.recently_revealed:
+                    ui.show_message(
+                        f"Hidden slot revealed in bottle #{bottle_num}: {color.name}",
+                        "info"
+                    )
+
                 # Check if this was the last move and it revealed an unknown
                 if i == len(moves) - 1 and status == "UNKNOWN_REVEALED":
                     if interactive:
@@ -352,16 +359,13 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                     else:
                         time.sleep(delay)
 
-                    # Find which bottle had the unknown revealed
-                    # The unknown would be at the top of the source bottle after transfer
-                    # Or newly revealed in the source bottle
+                    from models import Color
                     from_bottle = play_area.bottles[from_idx]
                     to_bottle = play_area.bottles[to_idx]
                     bottle_with_unknown = None
                     bottle_idx_with_unknown = None
 
                     # Check if there's an unknown at the top of source bottle now
-                    from models import Color
                     if from_bottle.get_top_color() == Color.UNKNOWN:
                         bottle_with_unknown = from_bottle
                         bottle_idx_with_unknown = from_idx
@@ -373,8 +377,8 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                     # Count consecutive unknowns from the top
                     unknown_count = 0
                     if bottle_with_unknown:
-                        for i in range(len(bottle_with_unknown.contents) - 1, -1, -1):
-                            if bottle_with_unknown.contents[i] == Color.UNKNOWN:
+                        for j in range(len(bottle_with_unknown.contents) - 1, -1, -1):
+                            if bottle_with_unknown.contents[j] == Color.UNKNOWN:
                                 unknown_count += 1
                             else:
                                 break
@@ -472,8 +476,20 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                         # Update the bottle in the current play area
                         bottle.contents = new_contents
                         bottle.is_complete = False
+                        # Auto-hide unknowns only if they are BELOW a known-color slot.
+                        # Unknowns at or above the highest known slot remain accessible
+                        # and will trigger UNKNOWN_REVEALED when reached by the solver.
+                        highest_known_idx = max(
+                            (i for i, c in enumerate(new_contents) if c != Color.UNKNOWN),
+                            default=-1
+                        )
+                        bottle.hidden_slots = {
+                            i for i, c in enumerate(new_contents)
+                            if c == Color.UNKNOWN and i < highest_known_idx
+                        }
                         if (len(new_contents) == 4 and len(set(new_contents)) == 1
-                                and new_contents[0] != Color.UNKNOWN):
+                                and new_contents[0] != Color.UNKNOWN
+                                and not bottle.hidden_slots):
                             bottle.is_complete = True
                         play_area.update_locks()
 
@@ -481,6 +497,7 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                         original_bottle = original_play_area.get_bottle_by_number(bottle_number)
                         if original_bottle:
                             original_bottle.contents = new_contents.copy()
+                            original_bottle.hidden_slots = bottle.hidden_slots.copy()
                             original_bottle.is_complete = bottle.is_complete
                         original_play_area.update_locks()
 
@@ -548,11 +565,8 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
         if play_area.is_game_complete():
             ui.show_completion(ui.move_count)
             ui.render_game(play_area, "Final state - All bottles complete!")
-        # else:
-        #     ui.render_game(play_area, "Current state")
-
-        # 5. Optionally save final state
-        # play_area.save_to_json("puzzle_solved.json")
+        else:
+            save_current_state(play_area, json_filepath, ui)
 
     except FileNotFoundError:
         print(f"Error: Puzzle file '{json_filepath}' not found")

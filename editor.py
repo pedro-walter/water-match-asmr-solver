@@ -74,7 +74,7 @@ def _cursor_edit(play_area: PlayArea, ui: ConsoleUI):
         """Render bottles with cursor using UI methods."""
         ui.clear_screen()
         print(f"\033[1m=== Cursor Edit Mode ==={ui.move_count}\033[0m")
-        print("↑↓ (up/down): change slot | ← → (left/right): change bottle | RPAGYOUCJ: set color | SPACE: clear | q: quit")
+        print("↑↓: slot | ←→: bottle | RPAGYOUCJ: set color | H: toggle hidden | SPACE: clear | i: help | q: quit")
         print()
 
         current_bottle = bottles_in_order[cursor_bottle]
@@ -95,7 +95,7 @@ def _cursor_edit(play_area: PlayArea, ui: ConsoleUI):
 
         if ch == 'q':
             break
-        elif ch == 'h':
+        elif ch == 'i':
             ui.clear_screen()
             print("=== Cursor Edit Mode Help ===\n")
             print("Navigation:")
@@ -103,8 +103,15 @@ def _cursor_edit(play_area: PlayArea, ui: ConsoleUI):
             print("  ← → (left/right arrows): Move to adjacent bottle\n")
             print("Editing:")
             print("  R P A G Y O U C ?: Set selected slot to that color")
-            print("  Space: Clear selected slot\n")
+            print("  H / h: Toggle hidden on selected slot (<H = cursor on hidden slot)")
+            print("  Space: Clear selected slot (also clears hidden flag)\n")
+            print("Hidden slots:")
+            print("  A hidden slot shows its color with purple borders.")
+            print("  It is revealed automatically when the slot directly above it is freed.")
+            print("  Consecutive same-color hidden slots reveal together.")
+            print("  ? slots are marked hidden by default.\n")
             print("Other:")
+            print("  i: This help screen")
             print("  q: Quit cursor edit mode\n")
             print("Press any key to continue...")
             sys.stdout.flush()
@@ -124,11 +131,27 @@ def _cursor_edit(play_area: PlayArea, ui: ConsoleUI):
                 elif next2 == 'B':  # Down arrow
                     cursor_slot = (cursor_slot - 1) % 4
 
+        elif ch in ('h', 'H'):
+            # Toggle hidden on selected slot
+            current_bottle = bottles_in_order[cursor_bottle]
+            if cursor_slot < len(current_bottle.contents):
+                if cursor_slot in current_bottle.hidden_slots:
+                    current_bottle.hidden_slots.discard(cursor_slot)
+                else:
+                    current_bottle.hidden_slots.add(cursor_slot)
+
         elif ch == ' ':
-            # Clear selected slot
+            # Clear selected slot (and remove hidden flag)
             current_bottle = bottles_in_order[cursor_bottle]
             if cursor_slot < len(current_bottle.contents):
                 current_bottle.contents.pop(cursor_slot)
+                current_bottle.hidden_slots.discard(cursor_slot)
+                # Shift down hidden slot indices above the removed slot
+                current_bottle.hidden_slots = {
+                    i if i < cursor_slot else i - 1
+                    for i in current_bottle.hidden_slots
+                    if i != cursor_slot
+                }
             current_bottle.is_complete = False
             play_area.update_locks()
 
@@ -138,12 +161,17 @@ def _cursor_edit(play_area: PlayArea, ui: ConsoleUI):
             color = color_from_string(color_name)
             current_bottle = bottles_in_order[cursor_bottle]
 
-            # Extend contents if needed
+            # Extend contents if needed (filling gaps with UNKNOWN, auto-hidden)
             while len(current_bottle.contents) <= cursor_slot:
+                gap_idx = len(current_bottle.contents)
                 current_bottle.contents.append(Color.UNKNOWN)
+                current_bottle.hidden_slots.add(gap_idx)
 
             current_bottle.contents[cursor_slot] = color
             current_bottle.is_complete = False
+            # Auto-hide UNKNOWN slots when added
+            if color == Color.UNKNOWN:
+                current_bottle.hidden_slots.add(cursor_slot)
             play_area.update_locks()
 
 
@@ -520,6 +548,8 @@ def _handle_add(user_input: str, play_area: PlayArea, ui: ConsoleUI, selected_co
         raise ValueError(f"Invalid color mnemonics: {e}")
 
     number = play_area.add_new_bottle(colors)
+    bottle = play_area.get_bottle_by_number(number)
+    bottle.hidden_slots = {i for i, c in enumerate(colors) if c == Color.UNKNOWN}
 
     # Add to selected row or column if in layout mode
     if play_area.row_layout:
@@ -555,6 +585,8 @@ def _handle_add_wizard(play_area: PlayArea, ui: ConsoleUI, selected_column: Opti
             else:
                 colors = []
             number = play_area.add_new_bottle(colors)
+            bottle = play_area.get_bottle_by_number(number)
+            bottle.hidden_slots = {i for i, c in enumerate(colors) if c == Color.UNKNOWN}
 
             # Add to selected row or column if in layout mode
             if play_area.row_layout:
@@ -827,6 +859,8 @@ def _handle_col_command(user_input: str, play_area: PlayArea, ui: ConsoleUI, sho
 
     # Add bottle to column
     number = play_area.add_new_bottle(colors)
+    bottle = play_area.get_bottle_by_number(number)
+    bottle.hidden_slots = {i for i, c in enumerate(colors) if c == Color.UNKNOWN}
     play_area.column_layout[col_idx]['bottle_indices'].append(number)
     # Add corresponding gap entry (default to 0.0)
     play_area.column_layout[col_idx]['gaps'].append(0.0)

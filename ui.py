@@ -38,6 +38,8 @@ COLOR_SYMBOLS = {
     Color.UNKNOWN: "❓",
 }
 
+HIDDEN_BORDER = "\033[95m"  # Magenta/purple for hidden slot wall indicators
+
 
 class ConsoleUI:
     """Console UI for displaying the water sort puzzle."""
@@ -188,20 +190,27 @@ class ConsoleUI:
         # Lines 2-5: Content (4 levels from top to bottom)
         for level in range(3, -1, -1):
             if level < len(bottle.contents):
+                is_hidden = bottle.is_slot_hidden(level)
                 color = bottle.contents[level]
                 symbol = COLOR_SYMBOLS.get(color, "?")
+                lb = f"{HIDDEN_BORDER}│{RESET}" if is_hidden else f"{h}│{r}"
+                rb = f"{HIDDEN_BORDER}│{RESET}" if is_hidden else f"{h}│{r}"
             else:
+                is_hidden = False
                 symbol = " "
+                lb = f"{h}│{r}"
+                rb = f"{h}│{r}"
 
             # Add cursor if this is the selected slot
             if show_cursor and cursor_slot is not None and level == cursor_slot:
+                cursor_marker = "<H" if (level < len(bottle.contents) and is_hidden) else "< "
                 if level < len(bottle.contents):
-                    lines.append(f"{h}│{r} {symbol} {h}│{r}< ")
+                    lines.append(f"{lb} {symbol} {rb}{cursor_marker}")
                 else:
-                    lines.append(f"{h}│{r}    {h}│{r}< ")
+                    lines.append(f"{h}│{r}    {h}│{r}{cursor_marker}")
             else:
                 if level < len(bottle.contents):
-                    lines.append(f"{h}│{r} {symbol} {h}│{r}  ")
+                    lines.append(f"{lb} {symbol} {rb}  ")
                 else:
                     lines.append(f"{h}│{r}    {h}│{r}  ")
 
@@ -251,16 +260,23 @@ class ConsoleUI:
                 r = RESET if hl else ""
 
                 if level < len(bottle.contents):
+                    is_hidden = bottle.is_slot_hidden(level)
                     color = bottle.contents[level]
                     symbol = COLOR_SYMBOLS.get(color, "?")
+                    lb = f"{HIDDEN_BORDER}│{RESET}" if is_hidden else f"{h}│{r}"
+                    rb = f"{HIDDEN_BORDER}│{RESET}" if is_hidden else f"{h}│{r}"
                 else:
+                    is_hidden = False
                     symbol = " "
+                    lb = f"{h}│{r}"
+                    rb = f"{h}│{r}"
 
                 if cursor_bottle is not None and cursor_slot is not None and bottle == cursor_bottle and level == cursor_slot:
-                    line += f"{h}│{r} {symbol} {h}│{r}<        "
+                    cursor_marker = "<H" if (level < len(bottle.contents) and is_hidden) else "< "
+                    line += f"{lb} {symbol} {rb}{cursor_marker}       "
                 else:
                     if level < len(bottle.contents):
-                        line += f"{h}│{r} {symbol} {h}│{r}         "
+                        line += f"{lb} {symbol} {rb}         "
                     else:
                         line += f"{h}│{r}    {h}│{r}         "
             lines.append(line)
@@ -362,16 +378,23 @@ class ConsoleUI:
                     r = RESET if hl else ""
 
                     if level < len(bottle.contents):
+                        is_hidden = bottle.is_slot_hidden(level)
                         color = bottle.contents[level]
                         symbol = COLOR_SYMBOLS.get(color, "?")
+                        lb = f"{HIDDEN_BORDER}│{RESET}" if is_hidden else f"{h}│{r}"
+                        rb = f"{HIDDEN_BORDER}│{RESET}" if is_hidden else f"{h}│{r}"
                     else:
+                        is_hidden = False
                         symbol = " "
+                        lb = f"{h}│{r}"
+                        rb = f"{h}│{r}"
 
                     if cursor_bottle is not None and cursor_slot is not None and bottle == cursor_bottle and level == cursor_slot:
-                        line += f"{h}│{r} {symbol} {h}│{r}<  "
+                        cursor_marker = "<H" if (level < len(bottle.contents) and is_hidden) else "< "
+                        line += f"{lb} {symbol} {rb}{cursor_marker} "
                     else:
                         if level < len(bottle.contents):
-                            line += f"{h}│{r} {symbol} {h}│{r}   "
+                            line += f"{lb} {symbol} {rb}   "
                         else:
                             line += f"{h}│{r}    {h}│{r}   "
                 lines.append(line)
@@ -612,6 +635,10 @@ class ConsoleUI:
 
                 if len(colors) > 4:
                     print("A bottle can hold at most 4 colors. Please re-enter.")
+                    continue
+
+                if colors and all(c == Color.UNKNOWN for c in colors):
+                    print("An unlocked bottle cannot be entirely unknown. Enter at least one known color.")
                     continue
 
                 return colors

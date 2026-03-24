@@ -18,7 +18,7 @@ class InvalidContentsException(Exception):
     pass
 
 class Bottle:
-    def __init__(self, number: int, contents: list = None):
+    def __init__(self, number: int, contents: list = None, hidden_slots: set = None):
         if contents is None:
             contents = []
         for color in contents:
@@ -27,6 +27,11 @@ class Bottle:
         self.number = number
         self.contents = contents
         self.is_complete = False
+        self.hidden_slots: set = hidden_slots if hidden_slots is not None else set()
+
+    def is_slot_hidden(self, index: int) -> bool:
+        """Return True if the slot at this index is hidden."""
+        return index in self.hidden_slots
 
     def add(self, color: Color) -> bool:
         """Add a color to the bottle. Returns True if successful, False otherwise."""
@@ -37,7 +42,7 @@ class Bottle:
             return True
         elif len(self.contents) < 4 and self.contents[-1] == color:
             self.contents.append(color)
-            if len(self.contents) == 4 and self.all_colors_equal() and color != Color.UNKNOWN:
+            if len(self.contents) == 4 and self.all_colors_equal() and color != Color.UNKNOWN and not self.hidden_slots:
                 self.is_complete = True
             return True
         else:
@@ -96,14 +101,22 @@ class Bottle:
         return self.contents[-1]
 
     def count_consecutive_top(self) -> int:
-        """Count how many consecutive colors of the same type are at the top."""
+        """Count how many consecutive visible colors of the same type are at the top.
+        Hidden slots act as a boundary — counting stops at any hidden slot."""
         if len(self.contents) == 0:
             return 0
 
-        top_color = self.contents[-1]
+        top_idx = len(self.contents) - 1
+        # If the top slot itself is hidden, it cannot be poured
+        if top_idx in self.hidden_slots:
+            return 0
+
+        top_color = self.contents[top_idx]
         count = 1
 
-        for i in range(len(self.contents) - 2, -1, -1):
+        for i in range(top_idx - 1, -1, -1):
+            if i in self.hidden_slots:
+                break  # Hidden slot acts as a boundary
             if self.contents[i] == top_color:
                 count += 1
             else:

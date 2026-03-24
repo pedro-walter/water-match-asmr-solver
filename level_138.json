@@ -1,0 +1,374 @@
+{
+  "bottles": [
+    {
+      "number": 0,
+      "contents": [
+        "ORANGE",
+        "PURPLE",
+        "PURPLE",
+        "CYAN"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 1,
+      "contents": [
+        "PURPLE",
+        "ORANGE",
+        "PURPLE",
+        "ORANGE"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 2,
+      "contents": [
+        "BLUE",
+        "CYAN",
+        "BLUE",
+        "YELLOW"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 3,
+      "contents": [
+        "RED",
+        "CYAN",
+        "BLUE",
+        "ORANGE"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 4,
+      "contents": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "hidden_slots": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "lock_condition": {
+        "count": 3,
+        "color": "CYAN"
+      }
+    },
+    {
+      "number": 5,
+      "contents": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "CYAN",
+        "CYAN"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ],
+      "lock_condition": {
+        "count": 4,
+        "color": "ANY"
+      }
+    },
+    {
+      "number": 6,
+      "contents": [
+        "GREEN",
+        "CYAN",
+        "PURPLE",
+        "GREEN"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 7,
+      "contents": [
+        "RED",
+        "ORANGE"
+      ],
+      "hidden_slots": [
+        0
+      ]
+    },
+    {
+      "number": 8,
+      "contents": [
+        "RED",
+        "ORANGE",
+        "GREY",
+        "GREEN"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 9,
+      "contents": [
+        "PURPLE",
+        "ORANGE",
+        "PURPLE",
+        "YELLOW"
+      ],
+      "hidden_slots": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "number": 10,
+      "contents": [
+        "BLUE",
+        "GREEN",
+        "ORANGE",
+        "PURPLE"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 11,
+      "contents": [
+        "GREEN",
+        "PURPLE",
+        "GREEN",
+        "YELLOW"
+      ],
+      "hidden_slots": [
+        0
+      ]
+    },
+    {
+      "number": 12,
+      "contents": [
+        "RED",
+        "GREEN",
+        "YELLOW",
+        "GREY"
+      ]
+    },
+    {
+      "number": 13,
+      "contents": [
+        "BLUE",
+        "ORANGE",
+        "GREEN",
+        "GREY"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 14,
+      "contents": [
+        "CYAN",
+        "CYAN"
+      ],
+      "hidden_slots": [
+        0
+      ]
+    },
+    {
+      "number": 15,
+      "contents": [
+        "GREY",
+        "GREY",
+        "BLUE",
+        "PURPLE"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 16,
+      "contents": [
+        "UNKNOWN",
+        "BLUE",
+        "GREEN",
+        "RED"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 17,
+      "contents": [
+        "UNKNOWN",
+        "GREY",
+        "RED",
+        "BLUE"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 18,
+      "contents": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "hidden_slots": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "lock_condition": {
+        "count": 3,
+        "color": "GREEN"
+      }
+    },
+    {
+      "number": 19,
+      "contents": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "YELLOW",
+        "GREEN"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ],
+      "lock_condition": {
+        "count": 4,
+        "color": "ANY"
+      }
+    },
+    {
+      "number": 20,
+      "contents": [
+        "ORANGE",
+        "YELLOW",
+        "GREEN",
+        "CYAN"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    },
+    {
+      "number": 21,
+      "contents": [
+        "YELLOW",
+        "CYAN",
+        "ORANGE",
+        "CYAN"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ]
+    }
+  ],
+  "column_layout": [
+    {
+      "skew": 0.0,
+      "gaps": [
+        0.5
+      ],
+      "bottle_indices": [
+        0,
+        1
+      ]
+    },
+    {
+      "skew": 0.0,
+      "gaps": [],
+      "bottle_indices": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "skew": 0.0,
+      "gaps": [
+        0.5
+      ],
+      "bottle_indices": [
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "skew": 0.0,
+      "gaps": [],
+      "bottle_indices": [
+        9,
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "skew": 0.0,
+      "gaps": [
+        0.5
+      ],
+      "bottle_indices": [
+        13,
+        14,
+        15
+      ]
+    },
+    {
+      "skew": 0.0,
+      "gaps": [],
+      "bottle_indices": [
+        16,
+        17,
+        18,
+        19
+      ]
+    },
+    {
+      "skew": 0.0,
+      "gaps": [
+        0.5
+      ],
+      "bottle_indices": [
+        20,
+        21
+      ]
+    }
+  ]
+}
