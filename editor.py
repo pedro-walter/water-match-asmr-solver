@@ -209,6 +209,7 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
     selected_row = None  # Track which row to add to in row mode
     last_message = None  # Store last message to display
     show_help = [False]  # Use list so flag persists across loop iterations
+    dirty = [False]  # True when there are unsaved changes
 
     # Default to row layout if no layout is set and puzzle is new (being created)
     # Only auto-set if no bottles exist yet (brand new puzzle)
@@ -274,8 +275,9 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
             user_input = input("> (type 'help') ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
-            print("Exiting editor.")
-            sys.exit(0)
+            if _handle_quit(ui, play_area, puzzle_file, dirty[0]):
+                sys.exit(0)
+            continue
 
         if not user_input:
             continue
@@ -283,8 +285,9 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
         # Dispatch command
         try:
             if user_input.lower() in ('q', 'quit'):
-                _handle_quit(ui)
-                break
+                if _handle_quit(ui, play_area, puzzle_file, dirty[0]):
+                    break
+                # else: cancelled, stay in loop
 
             elif user_input.lower() == 'help':
                 show_help[0] = True
@@ -292,6 +295,7 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
             elif user_input.lower() == 'cedit':
                 _cursor_edit(play_area, ui)
                 show_feedback("Exited cursor edit mode", "info")
+                dirty[0] = True
 
             elif user_input.lower() == 'play':
                 _handle_play(play_area, ui, puzzle_file)
@@ -299,16 +303,19 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
 
             elif user_input.lower().startswith('save'):
                 _handle_save(user_input, play_area, ui, show_feedback, puzzle_file)
+                dirty[0] = False
 
             elif user_input.lower() == 'layout rows':
                 _handle_layout_rows(play_area, ui, show_feedback)
                 selected_column = None
                 selected_row = None
+                dirty[0] = True
 
             elif user_input.lower() == 'layout cols':
                 _handle_layout_cols(play_area, ui, show_feedback)
                 selected_column = None
                 selected_row = None
+                dirty[0] = True
 
             elif user_input.lower().startswith('select col '):
                 parts = user_input.split()
@@ -337,6 +344,7 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
             elif user_input.lower() == 'col add':
                 _handle_col_add(play_area, ui, show_feedback)
                 selected_column = len(play_area.column_layout) if play_area.column_layout else None
+                dirty[0] = True
 
             elif user_input.lower().startswith('select row '):
                 parts = user_input.split()
@@ -368,36 +376,46 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
                 _handle_row_add(play_area, ui, show_feedback)
                 selected_row = len(play_area.row_layout) if play_area.row_layout else None
                 selected_column = None
+                dirty[0] = True
 
             elif re.match(r'^col\s+\d+\s+gaps\s*$', user_input.lower()):
                 _handle_col_gaps_display(user_input, play_area, ui, show_feedback)
 
             elif user_input.lower().startswith('col ') and ' gap' in user_input.lower():
                 _handle_col_gap(user_input, play_area, ui, show_feedback)
+                dirty[0] = True
 
             elif user_input.lower().startswith('col '):
                 _handle_col_command(user_input, play_area, ui, show_feedback)
+                dirty[0] = True
 
             elif user_input.lower().startswith('add '):
                 _handle_add(user_input, play_area, ui, selected_column, selected_row, show_feedback)
+                dirty[0] = True
 
             elif user_input.lower() in ('add',):
                 _handle_add_wizard(play_area, ui, selected_column, selected_row, show_feedback)
+                dirty[0] = True
 
             elif user_input.lower().startswith(('del ', 'remove ')):
                 _handle_remove(user_input, play_area, ui, show_feedback)
+                dirty[0] = True
 
             elif user_input.lower().startswith('move '):
                 _handle_move(user_input, play_area, ui, show_feedback)
+                dirty[0] = True
 
             elif user_input.lower() == 'renumber':
                 _handle_renumber(play_area, ui, show_feedback)
+                dirty[0] = True
 
             elif _is_quick_set(user_input):
                 _handle_quick_set(user_input, play_area, ui, show_feedback)
+                dirty[0] = True
 
             elif user_input.isdigit():
                 _handle_bottle_wizard(int(user_input), play_area, ui, show_feedback)
+                dirty[0] = True
 
             else:
                 show_feedback(f"Unknown command: {user_input}. Type 'help' for commands.", "error")
@@ -964,10 +982,18 @@ def _handle_play(play_area: PlayArea, ui: ConsoleUI, show_feedback=None, puzzle_
                 os.remove(temp_filename)
 
 
-def _handle_quit(ui: ConsoleUI):
-    """Handle quit command."""
+def _handle_quit(ui: ConsoleUI, play_area: PlayArea = None, puzzle_file: Optional[str] = None, dirty: bool = False):
+    """Handle quit command. Returns True if quit confirmed, False if cancelled."""
+    if dirty and play_area is not None:
+        print()
+        response = input("You have unsaved changes. Save before quitting? (y/n/cancel): ").strip().lower()
+        if response in ('y', 'yes'):
+            _handle_save('save', play_area, ui, puzzle_file=puzzle_file)
+        elif response not in ('n', 'no'):
+            return False  # cancel
     print()
-    print("Exiting without saving.")
+    print("Exiting editor.")
+    return True
 
 
 def _print_help():
