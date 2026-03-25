@@ -302,7 +302,9 @@ def _loop(play_area: PlayArea, ui: ConsoleUI, puzzle_file: Optional[str] = None)
                 break
 
             elif user_input.lower().startswith('save'):
-                _handle_save(user_input, play_area, ui, show_feedback, puzzle_file)
+                saved_to = _handle_save(user_input, play_area, ui, show_feedback, puzzle_file)
+                if puzzle_file is None and saved_to:
+                    puzzle_file = saved_to
                 dirty[0] = False
 
             elif user_input.lower() == 'layout rows':
@@ -942,6 +944,7 @@ def _handle_save(user_input: str, play_area: PlayArea, ui: ConsoleUI, show_feedb
     try:
         play_area.save_to_json(filename)
         _show_msg(show_feedback, ui, f"Puzzle saved to {filename}", "success")
+        return filename
     except Exception as e:
         raise ValueError(f"Failed to save: {e}")
 
