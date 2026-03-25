@@ -969,7 +969,7 @@ def _handle_play(play_area: PlayArea, ui: ConsoleUI, show_feedback=None, puzzle_
         # so reveals and unlocks are persisted to the original file in real time.
         play_area.save_to_json(puzzle_file)
         try:
-            run_solver(puzzle_file, delay=0.5, interactive=True, max_iterations=10000000)
+            run_solver(puzzle_file, delay=0.5, interactive=True, max_iterations=100000000)
         except Exception as e:
             _show_msg(show_feedback, ui, f"Solver error: {e}", "error")
     else:
@@ -977,7 +977,7 @@ def _handle_play(play_area: PlayArea, ui: ConsoleUI, show_feedback=None, puzzle_
         temp_filename = ".puzzle_temp.json"
         play_area.save_to_json(temp_filename)
         try:
-            run_solver(temp_filename, delay=0.5, interactive=True, max_iterations=10000000)
+            run_solver(temp_filename, delay=0.5, interactive=True, max_iterations=100000000)
         except Exception as e:
             _show_msg(show_feedback, ui, f"Solver error: {e}", "error")
         finally:

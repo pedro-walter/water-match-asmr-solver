@@ -52,8 +52,16 @@ Examples:
     parser.add_argument(
         '--max-iterations',
         type=int,
-        default=10000000,
-        help='Maximum solver iterations before timeout (default: 10000000)'
+        default=100000000,
+        help='Maximum solver iterations before timeout (default: 100000000)'
+    )
+
+    parser.add_argument(
+        '--tree-size',
+        type=int,
+        default=100000,
+        help='MCTS tree size cap per thread before compaction (default: 100000). '
+             'Lower = less RAM, more frequent commits. Higher = more exploration per move.'
     )
 
     parser.add_argument(
@@ -72,7 +80,7 @@ Examples:
         else:
             # Run the solver (interactive by default, unless --auto is specified)
             run_solver(args.puzzle_file, args.delay, interactive=not args.auto,
-                       max_iterations=args.max_iterations)
+                       max_iterations=args.max_iterations, tree_size=args.tree_size)
     else:
         # Launch the editor with a new puzzle
         from editor import run_editor

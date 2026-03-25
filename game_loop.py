@@ -150,7 +150,7 @@ def infer_unknown_color(play_area: PlayArea):
 
 
 def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
-               max_iterations: int = 10000000):
+               max_iterations: int = 100000000, tree_size: int = 100000):
     """
     Run the interactive puzzle solver.
 
@@ -158,7 +158,8 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
         json_filepath: Path to the puzzle JSON file
         delay: Delay in seconds between moves for visualization (ignored if interactive=True)
         interactive: If True, wait for keypress between moves; if False, use delay
-        max_iterations: Maximum solver iterations before timeout (default: 10 million)
+        max_iterations: Maximum solver iterations before timeout (default: 100 million)
+        tree_size: MCTS tree node cap per thread before compaction (default: 100000)
     """
     try:
         # 1. Load game from JSON
@@ -226,11 +227,14 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
             # 3a. Solve until unknown or completion
             print(f"Starting solver (max {max_iterations:,} iterations)...")
             moves, status = solver.solve_parallel(max_iterations=max_iterations,
+                                                  tree_size=tree_size,
                                                   progress_callback=progress_callback)
 
             if status == "TIMEOUT" or status == "NO_SOLUTION" or (status == "BOTTLE_UNLOCKED" and not moves):
-                # Detailed message already shown by progress_callback
-                # Don't clear screen - let user see the error message
+                if status == "TIMEOUT":
+                    print(f"\nSolver timed out after {max_iterations:,} iterations — no solution found within budget.")
+                elif status == "NO_SOLUTION":
+                    print(f"\nSolver exhausted the search space — no solution exists.")
                 print()
 
                 # If NO_SOLUTION, offer to restore original puzzle and try again

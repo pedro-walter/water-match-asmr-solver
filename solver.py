@@ -6,6 +6,12 @@ from typing import List, Tuple, Optional, Dict
 from models import Color
 from play_area import PlayArea
 
+try:
+    import rust_solver as _rust_solver
+    _RUST_AVAILABLE = True
+except ImportError:
+    _RUST_AVAILABLE = False
+
 
 # ---------------------------------------------------------------------------
 # GameState
@@ -490,6 +496,7 @@ class Solver:
         self.current_state = initial_play_area.to_game_state()
         self.best_partial_node = None
         self.best_partial_iteration = 0
+        self._rust_best_partial = None  # (moves, completed_count, iteration) from Rust
 
         num_bottles = len(initial_play_area.bottles)
         if num_bottles <= 12:
@@ -529,7 +536,7 @@ class Solver:
     # Single-threaded search
     # ------------------------------------------------------------------
 
-    def solve_until_unknown(self, max_iterations: int = 10000000,
+    def solve_until_unknown(self, max_iterations: int = 100000000,
                             progress_callback=None) -> Tuple[List[Tuple[int, int]], str]:
         """
         Run A* search (single-threaded) until an unknown is revealed or puzzle is solved.
@@ -577,9 +584,33 @@ class Solver:
 
         return current_level
 
+    def _state_to_dict(self, state: GameState) -> dict:
+        """Serialize GameState to the dict format expected by rust_solver.solve_parallel."""
+        bottles = [list(c.value if c != Color.UNKNOWN else 99 for c in bottle)
+                   for bottle in state.bottles]
+        locked_bottles = list(state.locked_bottles)
+        completed_bottles = list(state.completed_bottles)
+        completed_colors = {c.value: count for c, count in state.completed_colors.items()}
+        lock_conditions = {}
+        for bi, lc in state.lock_conditions.items():
+            lock_conditions[bi] = {
+                "count": lc.count,
+                "color": lc.color.value if lc.color is not None else -1,
+            }
+        hidden_slots = [[bi, si] for bi, si in sorted(state.hidden_slots_state)]
+        return {
+            "bottles": bottles,
+            "locked_bottles": locked_bottles,
+            "completed_bottles": completed_bottles,
+            "completed_colors": completed_colors,
+            "lock_conditions": lock_conditions,
+            "hidden_slots": hidden_slots,
+        }
+
     def solve_parallel(
         self,
-        max_iterations: int = 10000000,
+        max_iterations: int = 100000000,
+        tree_size: int = 100000,
         num_processes: int = None,
         progress_callback=None,
     ) -> Tuple[List[Tuple[int, int]], str]:
@@ -595,6 +626,15 @@ class Solver:
         ≈ single-threaded time, but the search covers ~num_processes× more of
         the state space from diverse starting points.
         """
+        if _RUST_AVAILABLE:
+            print("Using Rust solver...")
+            state_dict = self._state_to_dict(self.current_state)
+            moves, status, bp_moves, bp_completed, bp_iter = _rust_solver.solve_parallel(
+                state_dict, self.heuristic_weight, max_iterations, tree_size
+            )
+            self._rust_best_partial = (list(bp_moves), int(bp_completed), int(bp_iter))
+            return list(moves), status
+
         if num_processes is None:
             num_processes = mp.cpu_count()
 
@@ -677,6 +717,8 @@ class Solver:
         self.current_state = current_play_area.to_game_state()
 
     def get_best_partial_solution(self) -> Tuple[List[Tuple[int, int]], int, int]:
+        if _RUST_AVAILABLE and self._rust_best_partial is not None:
+            return self._rust_best_partial
         if self.best_partial_node is None:
             return [], 0, 0
         path = _reconstruct_path(self.best_partial_node)
