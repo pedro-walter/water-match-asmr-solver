@@ -151,7 +151,7 @@ def infer_unknown_color(play_area: PlayArea):
 
 def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
                max_iterations: int = 100000000, tree_size: int = 100000,
-               algorithm: str = "mcts"):
+               chunk_depth: int = 4, algorithm: str = "mcts"):
     """
     Run the interactive puzzle solver.
 
@@ -229,6 +229,7 @@ def run_solver(json_filepath: str, delay: float = 0.5, interactive: bool = True,
             print(f"Starting solver (max {max_iterations:,} iterations)...")
             moves, status = solver.solve_parallel(max_iterations=max_iterations,
                                                   tree_size=tree_size,
+                                                  chunk_depth=chunk_depth,
                                                   algorithm=algorithm,
                                                   progress_callback=progress_callback)
 

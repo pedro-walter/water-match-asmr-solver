@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use rayon::prelude::*;
 
 use crate::astar::{BestPartial, SearchStatus};
-use crate::dfs::{parallel_dfs_phase1, Phase1Result};
 use crate::mcts::mcts_search;
 use crate::moves::{generate_valid_moves, is_revealing_unknown, is_unlocking_unknown_bottle};
 use crate::types::GameState;
@@ -19,7 +18,7 @@ pub struct SolveResult {
 
 /// Generate all states reachable in `depth` moves, skipping unknown-revealing
 /// and bottle-unlocking moves (mirrors Python _generate_partitions).
-fn generate_partitions(initial: &GameState, depth: usize) -> Vec<(Vec<(usize, usize)>, GameState)> {
+pub(crate) fn generate_partitions(initial: &GameState, depth: usize) -> Vec<(Vec<(usize, usize)>, GameState)> {
     let mut current: Vec<(Vec<(usize, usize)>, GameState)> = vec![(vec![], initial.clone())];
 
     for _ in 0..depth {
@@ -47,44 +46,15 @@ pub fn solve_parallel(
     heuristic_weight: f32,
     max_iterations: u64,
     tree_size: usize,
+    chunk_depth: usize,
     stop: Arc<AtomicBool>,
     algorithm: &str,
 ) -> SolveResult {
-    // Two-phase DFS:
-    //   Phase 1 — parallel DFS with DashSet (keys only, ~42 B/entry, ~3× less
-    //             RAM than storing parent pointers).  Proves solvability or
-    //             exhausts the state space (NoSolution).
-    //   Phase 2 — MCTS path reconstruction, runs only when phase 1 confirms a
-    //             solution exists.  MCTS is already RAM-bounded by tree
-    //             compaction, so peak memory never spikes for phase 2.
     if algorithm == "dfs" {
-        let num_threads = rayon::current_num_threads();
-        eprintln!("Parallel DFS phase 1 (solvability check): {} threads", num_threads);
-        let (phase1, best_completed) =
-            parallel_dfs_phase1(initial.clone(), num_threads, max_iterations, Arc::clone(&stop));
-
-        let no_path_result = |status: &'static str| SolveResult {
-            moves: vec![],
-            status,
-            best_partial: BestPartial {
-                moves: vec![],
-                completed_count: best_completed,
-                iteration: 0,
-            },
-        };
-
-        return match phase1 {
-            Phase1Result::NoSolution => no_path_result("NO_SOLUTION"),
-            Phase1Result::Timeout    => no_path_result("TIMEOUT"),
-            Phase1Result::Stopped    => no_path_result("STOPPED"),
-            // Solvable (any flavour) — run MCTS to retrieve the actual path.
-            _ => {
-                eprintln!("DFS phase 1: {:?} — running MCTS phase 2 for path...", phase1);
-                let (status, bp) =
-                    mcts_search(initial, heuristic_weight, max_iterations, tree_size, Some(stop));
-                search_status_to_result(status, vec![], bp)
-            }
-        };
+        let (status, bp) = crate::chunked_dfs::chunked_dfs_search(
+            initial, chunk_depth, stop,
+        );
+        return search_status_to_result(status, vec![], bp);
     }
     let num_threads = rayon::current_num_threads();
     let min_partitions = num_threads * 2;

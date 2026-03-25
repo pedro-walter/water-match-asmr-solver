@@ -611,6 +611,7 @@ class Solver:
         self,
         max_iterations: int = 100000000,
         tree_size: int = 100000,
+        chunk_depth: int = 4,
         algorithm: str = "mcts",
         num_processes: int = None,
         progress_callback=None,
@@ -627,7 +628,7 @@ class Solver:
             print(f"Using Rust solver ({algorithm.upper()})...")
             state_dict = self._state_to_dict(self.current_state)
             moves, status, bp_moves, bp_completed, bp_iter = _rust_solver.solve_parallel(
-                state_dict, self.heuristic_weight, max_iterations, tree_size, algorithm
+                state_dict, self.heuristic_weight, max_iterations, tree_size, chunk_depth, algorithm
             )
             self._rust_best_partial = (list(bp_moves), int(bp_completed), int(bp_iter))
             return list(moves), status

@@ -228,7 +228,15 @@
     },
     {
       "number": 18,
-      "contents": [],
+      "contents": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "RED"
+      ],
+      "hidden_slots": [
+        0,
+        1
+      ],
       "lock_condition": {
         "count": 4,
         "color": "GREEN"

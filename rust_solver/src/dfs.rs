@@ -333,6 +333,7 @@ pub fn parallel_dfs_search(
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)]
 pub enum Phase1Result {
     Solvable,
     UnknownRevealed,
@@ -343,6 +344,7 @@ pub enum Phase1Result {
     Stopped,
 }
 
+#[allow(dead_code)]
 pub fn parallel_dfs_phase1(
     initial: GameState,
     num_threads: usize,

@@ -74,6 +74,15 @@ Examples:
     )
 
     parser.add_argument(
+        '--chunk-depth',
+        type=int,
+        default=4,
+        help='DFS chunk depth K (default: 4). The search space is split into all '
+             'states reachable in K moves; each becomes an independent DFS worker. '
+             'Higher K = more chunks, smaller per-chunk RAM, more cross-chunk overlap.'
+    )
+
+    parser.add_argument(
         '--edit',
         action='store_true',
         help='Load puzzle file for editing instead of solving'
@@ -90,7 +99,7 @@ Examples:
             # Run the solver (interactive by default, unless --auto is specified)
             run_solver(args.puzzle_file, args.delay, interactive=not args.auto,
                        max_iterations=args.max_iterations, tree_size=args.tree_size,
-                       algorithm=args.algorithm)
+                       chunk_depth=args.chunk_depth, algorithm=args.algorithm)
     else:
         # Launch the editor with a new puzzle
         from editor import run_editor

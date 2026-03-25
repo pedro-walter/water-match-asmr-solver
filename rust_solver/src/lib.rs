@@ -1,4 +1,5 @@
 mod astar;
+mod chunked_dfs;
 mod dfs;
 mod heuristic;
 mod mcts;
@@ -107,21 +108,20 @@ fn solve_parallel(
     heuristic_weight: f32,
     max_iterations: u64,
     tree_size: usize,
+    chunk_depth: usize,
     algorithm: &str,
 ) -> PyResult<PyObject> {
     let state = dict_to_game_state(state_dict)?;
-    // Own the algorithm string before spawning so it can cross the thread boundary.
     let algorithm = algorithm.to_owned();
 
-    // Shared stop flag: workers set it when a solution is found (first-wins),
-    // and we set it from here when Ctrl+C arrives.
     let stop = Arc::new(AtomicBool::new(false));
     let stop_for_worker = Arc::clone(&stop);
 
     let (tx, rx) = mpsc::channel::<parallel::SolveResult>();
     std::thread::spawn(move || {
         let result = parallel::solve_parallel(
-            state, heuristic_weight, max_iterations, tree_size, stop_for_worker, &algorithm,
+            state, heuristic_weight, max_iterations, tree_size, chunk_depth,
+            stop_for_worker, &algorithm,
         );
         tx.send(result).ok();
     });
