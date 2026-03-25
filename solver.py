@@ -611,26 +611,23 @@ class Solver:
         self,
         max_iterations: int = 100000000,
         tree_size: int = 100000,
+        algorithm: str = "mcts",
         num_processes: int = None,
         progress_callback=None,
     ) -> Tuple[List[Tuple[int, int]], str]:
         """
-        Parallel A* search using 2-level partitioning.
+        Parallel search using the selected algorithm.
 
-        Generates all states reachable in 2 moves, distributes them across
-        worker processes. Each worker runs independent A*; the first to find
-        a solution (or UNKNOWN_REVEALED / BOTTLE_UNLOCKED) wins and all others
-        are stopped.
-
-        Iteration budget per partition is normalised so total wall-clock time
-        ≈ single-threaded time, but the search covers ~num_processes× more of
-        the state space from diverse starting points.
+        algorithm:
+          "mcts"   — Rust MCTS with parallel partitioning (default)
+          "dfs"    — Rust exhaustive DFS; proves NoSolution when space is fully explored
+          "python" — Original Python A* (no Rust)
         """
-        if _RUST_AVAILABLE:
-            print("Using Rust solver...")
+        if _RUST_AVAILABLE and algorithm != "python":
+            print(f"Using Rust solver ({algorithm.upper()})...")
             state_dict = self._state_to_dict(self.current_state)
             moves, status, bp_moves, bp_completed, bp_iter = _rust_solver.solve_parallel(
-                state_dict, self.heuristic_weight, max_iterations, tree_size
+                state_dict, self.heuristic_weight, max_iterations, tree_size, algorithm
             )
             self._rust_best_partial = (list(bp_moves), int(bp_completed), int(bp_iter))
             return list(moves), status

@@ -65,6 +65,15 @@ Examples:
     )
 
     parser.add_argument(
+        '--algorithm',
+        choices=['mcts', 'dfs', 'python'],
+        default='mcts',
+        help='Search algorithm: mcts (default, parallel Monte Carlo), '
+             'dfs (exhaustive depth-first — can prove no solution exists), '
+             'python (original Python A*, no Rust)'
+    )
+
+    parser.add_argument(
         '--edit',
         action='store_true',
         help='Load puzzle file for editing instead of solving'
@@ -80,7 +89,8 @@ Examples:
         else:
             # Run the solver (interactive by default, unless --auto is specified)
             run_solver(args.puzzle_file, args.delay, interactive=not args.auto,
-                       max_iterations=args.max_iterations, tree_size=args.tree_size)
+                       max_iterations=args.max_iterations, tree_size=args.tree_size,
+                       algorithm=args.algorithm)
     else:
         # Launch the editor with a new puzzle
         from editor import run_editor

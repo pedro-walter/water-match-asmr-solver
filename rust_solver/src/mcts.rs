@@ -23,8 +23,9 @@ const CHECK_INTERVAL: u64 = 5_000;
 /// Free RAM threshold in KB below which we compact (1 GB).
 const RAM_THRESHOLD_KB: u64 = 1_024 * 1_024;
 
-/// Hard cap on tree nodes per thread.  When reached, compact immediately.
+/// Default hard cap on tree nodes per thread (overridden by the `tree_size` parameter).
 /// 100K nodes × ~280 bytes × 8 threads ≈ 224 MB peak — well within budget.
+#[allow(dead_code)]
 const TREE_SIZE_THRESHOLD: usize = 100_000;
 
 // ---------------------------------------------------------------------------
