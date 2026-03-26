@@ -96,7 +96,7 @@ fn reconstruct_path(
 // NOT stored here; workers replay the prefix on demand from `initial`.
 // ---------------------------------------------------------------------------
 
-fn generate_prefixes(
+pub(crate) fn generate_prefixes(
     initial: &GameState,
     depth: usize,
 ) -> Vec<Vec<(usize, usize)>> {

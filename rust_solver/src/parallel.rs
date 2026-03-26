@@ -56,6 +56,10 @@ pub fn solve_parallel(
         );
         return search_status_to_result(status, vec![], bp);
     }
+    if algorithm == "global_dfs" {
+        let (status, bp) = crate::global_dfs::global_dfs_search(initial, stop);
+        return search_status_to_result(status, vec![], bp);
+    }
     let num_threads = rayon::current_num_threads();
     let min_partitions = num_threads * 2;
 

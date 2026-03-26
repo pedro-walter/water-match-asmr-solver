@@ -1,6 +1,7 @@
 mod astar;
 mod chunked_dfs;
 mod dfs;
+mod global_dfs;
 mod heuristic;
 mod mcts;
 mod moves;

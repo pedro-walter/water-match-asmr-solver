@@ -66,10 +66,11 @@ Examples:
 
     parser.add_argument(
         '--algorithm',
-        choices=['mcts', 'dfs', 'python'],
+        choices=['mcts', 'dfs', 'global_dfs', 'python'],
         default='mcts',
         help='Search algorithm: mcts (default, parallel Monte Carlo), '
-             'dfs (exhaustive depth-first — can prove no solution exists), '
+             'dfs (chunked depth-first, RAM-efficient), '
+             'global_dfs (single-threaded, globally deduplicated, ~28 bytes/state), '
              'python (original Python A*, no Rust)'
     )
 
