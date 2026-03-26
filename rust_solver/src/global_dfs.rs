@@ -1,37 +1,47 @@
 // ---------------------------------------------------------------------------
-// Parallel Global-Dedup Greedy DFS
+// Parallel Global-Dedup Greedy DFS  (disk-backed parent store)
 //
-// All threads share a single DashMap<u64, (u64, u8, u8)>:
-//   key   = 64-bit hash of state.to_key()
-//   value = (parent_hash, from_bottle, to_bottle)
-//   root  = sentinel (parent_hash=0, from=255, to=255)
+// HOT PATH  — dedup only:
+//   DashSet<u64>  ~10 bytes/entry  →  ~1 billion states in 10 GB RAM
 //
-// State ownership: `DashMap::insert()` returns the previous value; a
-// `None` result means this thread is the first to see this state and
-// therefore owns it (pushes it onto its local stack).  Any other thread
-// that later hashes to the same state gets `Some(...)` back and skips it.
-// This gives true global deduplication across all threads with no locks
-// on the hot path beyond DashMap's internal per-shard RwLocks.
+// COLD PATH  — path reconstruction (done once, at solution time):
+//   Append-only disk files, one per thread.
+//   Record: 18 bytes  [key:u64 | parent:u64 | from:u8 | to:u8]
+//   At solution time: scan all files once into a temporary HashMap,
+//   walk the parent chain, return the move sequence.
 //
-// Memory: ~28 bytes/state (DashMap uses hashbrown internally, same as
-// std HashMap — sharding overhead is a fixed ~4 KB regardless of size).
+// Parent info is written to disk for every newly-claimed state.
+// The DashSet only stores the 8-byte key; the 10-byte value stays on disk.
 // ---------------------------------------------------------------------------
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::io::{BufWriter, BufReader, Read, Write};
+use std::fs::File;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
-use dashmap::DashMap;
+use dashmap::DashSet;
 
 use crate::astar::{BestPartial, SearchStatus};
 use crate::heuristic::heuristic;
 use crate::moves::{generate_valid_moves, is_revealing_unknown, is_unlocking_unknown_bottle};
 use crate::types::GameState;
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const LOG_INTERVAL: u64 = 100_000;
 const SPINNER: &[char] = &['|', '/', '-', '\\'];
+const RECORD_SIZE: usize = 18; // key(8) + parent(8) + from(1) + to(1)
+const WRITE_BUF: usize = 8 << 20; // 8 MB write buffer per thread
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
 
 fn free_ram_mb() -> u64 {
     #[cfg(target_os = "linux")]
@@ -57,14 +67,54 @@ fn hash_state(state: &GameState) -> u64 {
     h.finish()
 }
 
-/// Walk the parent-hash chain in the shared map to reconstruct moves.
-/// Root sentinel: from == 255.
-fn reconstruct_path(visited: &DashMap<u64, (u64, u8, u8)>, goal_hash: u64) -> Vec<(usize, usize)> {
+fn disk_path(thread_idx: usize) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "water_solver_{:08x}_{}.bin",
+        std::process::id(),
+        thread_idx,
+    ))
+}
+
+/// Write one 18-byte record to a buffered disk file.
+fn write_record(w: &mut BufWriter<File>, key: u64, parent: u64, from: u8, to: u8) {
+    w.write_all(&key.to_le_bytes()).expect("disk write failed");
+    w.write_all(&parent.to_le_bytes()).expect("disk write failed");
+    w.write_all(&[from, to]).expect("disk write failed");
+}
+
+// ---------------------------------------------------------------------------
+// Path reconstruction (called once, after search completes)
+//
+// Scans every disk file into a single HashMap, then walks the parent-hash
+// chain from goal_hash back to the root sentinel (from == 255).
+// Memory cost: ~28 bytes × total_states_visited — acceptable for the
+// common case where a solution is found before billions of states.
+// ---------------------------------------------------------------------------
+
+fn reconstruct_path_from_disk(
+    disk_files: &[PathBuf],
+    goal_hash: u64,
+) -> Vec<(usize, usize)> {
+    let mut map: HashMap<u64, (u64, u8, u8)> = HashMap::new();
+    let mut buf = [0u8; RECORD_SIZE];
+
+    for path in disk_files {
+        if let Ok(f) = File::open(path) {
+            let mut reader = BufReader::new(f);
+            while reader.read_exact(&mut buf).is_ok() {
+                let key    = u64::from_le_bytes(buf[0..8].try_into().unwrap());
+                let parent = u64::from_le_bytes(buf[8..16].try_into().unwrap());
+                let from   = buf[16];
+                let to     = buf[17];
+                map.insert(key, (parent, from, to));
+            }
+        }
+    }
+
     let mut path = Vec::new();
     let mut cur = goal_hash;
     loop {
-        // Copy the value out immediately so we don't hold the shard lock.
-        let (parent, from, to) = *visited.get(&cur).expect("hash missing during reconstruct");
+        let &(parent, from, to) = map.get(&cur).expect("hash missing during path reconstruction");
         if from == 255 { break; } // root sentinel
         path.push((from as usize, to as usize));
         cur = parent;
@@ -73,30 +123,38 @@ fn reconstruct_path(visited: &DashMap<u64, (u64, u8, u8)>, goal_hash: u64) -> Ve
     path
 }
 
-/// Walk `prefix` moves from `initial`, inserting each intermediate state
-/// into the shared map (first-writer-wins via `entry().or_insert()`).
-/// Returns the hash + state of the partition root, or None if a move is
-/// invalid (shouldn't happen in practice).
+// ---------------------------------------------------------------------------
+// Partition prefix preparation
+//
+// Inserts prefix-chain states into the dedup set and writes their parent
+// records to the coordinator disk file. First-writer-wins for states that
+// appear in multiple prefix paths.
+// ---------------------------------------------------------------------------
+
 fn prepare_partition(
-    visited: &DashMap<u64, (u64, u8, u8)>,
+    visited: &DashSet<u64>,
+    disk: &mut BufWriter<File>,
     initial: &GameState,
     initial_hash: u64,
     prefix: &[(usize, usize)],
 ) -> Option<(u64, GameState)> {
-    let mut cur_hash = initial_hash;
+    let mut cur_hash  = initial_hash;
     let mut cur_state = initial.clone();
+
     for &(from, to) in prefix {
         let new_state = cur_state.apply_move(from, to)?;
-        let new_hash = hash_state(&new_state);
-        visited.entry(new_hash).or_insert((cur_hash, from as u8, to as u8));
-        cur_hash = new_hash;
+        let new_hash  = hash_state(&new_state);
+        if visited.insert(new_hash) {
+            write_record(disk, new_hash, cur_hash, from as u8, to as u8);
+        }
+        cur_hash  = new_hash;
         cur_state = new_state;
     }
     Some((cur_hash, cur_state))
 }
 
 // ---------------------------------------------------------------------------
-// Per-worker types
+// Per-worker result types
 // ---------------------------------------------------------------------------
 
 struct WorkerResult {
@@ -105,24 +163,24 @@ struct WorkerResult {
 }
 
 enum WorkerStatus {
-    Solved(Vec<(usize, usize)>),
-    UnknownRevealed(Vec<(usize, usize)>),
-    BottleUnlocked(Vec<(usize, usize)>),
+    Solved           { goal_hash: u64 },
+    UnknownRevealed  { pre_hash: u64, from: usize, to: usize },
+    BottleUnlocked   { pre_hash: u64, from: usize, to: usize },
     NoSolution,
     Stopped,
 }
 
 // ---------------------------------------------------------------------------
-// Worker — runs a greedy DFS from a single starting state.
-// Owns its local stack; all other data is shared read-only or via DashMap.
+// Worker — greedy DFS from a single starting state
 // ---------------------------------------------------------------------------
 
 fn dfs_worker(
-    start_hash: u64,
-    start_state: GameState,
-    visited: &DashMap<u64, (u64, u8, u8)>,
-    stop: &AtomicBool,
+    start_hash:   u64,
+    start_state:  GameState,
+    visited:      &DashSet<u64>,
+    stop:         &AtomicBool,
     total_states: &AtomicU64,
+    disk:         &mut BufWriter<File>,
 ) -> WorkerResult {
     let mut best_partial = BestPartial::default();
     let mut local_iters: u64 = 0;
@@ -136,32 +194,32 @@ fn dfs_worker(
 
         local_iters += 1;
 
-        // Progress: print when this thread crosses a LOG_INTERVAL boundary.
         if local_iters % LOG_INTERVAL == 0 {
             let total = total_states.load(Ordering::Relaxed);
-            let spin = SPINNER[((total / LOG_INTERVAL) % 4) as usize];
-            let used_mb = total * 28 / 1_000_000;
+            let spin  = SPINNER[((total / LOG_INTERVAL) % 4) as usize];
             eprint!(
-                "\r{} [global-dfs] {}M states | ~{} MB used | free: {} MB   ",
+                "\r{} [global-dfs] {}M states | ~{} MB RAM | free: {} MB   ",
                 spin,
                 total / 1_000_000,
-                used_mb,
+                total * 10 / 1_000_000, // ~10 bytes/entry in DashSet
                 free_ram_mb(),
             );
         }
 
         if state.is_goal() {
             stop.store(true, Ordering::Relaxed);
-            eprintln!();
-            let path = reconstruct_path(visited, state_hash);
-            return WorkerResult { best_partial, status: WorkerStatus::Solved(path) };
+            return WorkerResult {
+                best_partial,
+                status: WorkerStatus::Solved { goal_hash: state_hash },
+            };
         }
 
-        // Best-partial tracking.
+        // Track best partial — path is left empty (disk-based reconstruction
+        // is deferred to solution time; inline reconstruction would require
+        // a full disk scan here which is too expensive).
         let completed = state.completed.0.count_ones() as u32;
         if completed > best_partial.completed_count {
-            let path = reconstruct_path(visited, state_hash);
-            best_partial.update(path, completed, local_iters);
+            best_partial.update(vec![], completed, local_iters);
         }
 
         let moves = generate_valid_moves(&state);
@@ -169,26 +227,33 @@ fn dfs_worker(
 
         for (from, to) in moves {
             if is_revealing_unknown(&state, from) {
-                let mut path = reconstruct_path(visited, state_hash);
-                path.push((from, to));
-                stop.store(true, Ordering::Relaxed);
-                eprintln!();
-                return WorkerResult { best_partial, status: WorkerStatus::UnknownRevealed(path) };
+                return WorkerResult {
+                    best_partial,
+                    status: WorkerStatus::UnknownRevealed {
+                        pre_hash: state_hash,
+                        from,
+                        to,
+                    },
+                };
             }
 
             if let Some(new_state) = state.apply_move(from, to) {
                 if is_unlocking_unknown_bottle(&state, &new_state) {
-                    let mut path = reconstruct_path(visited, state_hash);
-                    path.push((from, to));
-                    stop.store(true, Ordering::Relaxed);
-                    eprintln!();
-                    return WorkerResult { best_partial, status: WorkerStatus::BottleUnlocked(path) };
+                    return WorkerResult {
+                        best_partial,
+                        status: WorkerStatus::BottleUnlocked {
+                            pre_hash: state_hash,
+                            from,
+                            to,
+                        },
+                    };
                 }
 
                 let new_hash = hash_state(&new_state);
 
-                // Global dedup: only this thread (the first inserter) processes the state.
-                if visited.insert(new_hash, (state_hash, from as u8, to as u8)).is_none() {
+                // Claim this state; only proceed if we're the first to see it.
+                if visited.insert(new_hash) {
+                    write_record(disk, new_hash, state_hash, from as u8, to as u8);
                     total_states.fetch_add(1, Ordering::Relaxed);
                     let h = heuristic(&new_state);
                     children.push((h, new_state, new_hash, from as u8, to as u8));
@@ -196,8 +261,10 @@ fn dfs_worker(
             }
         }
 
-        // Sort descending by h so the best child (lowest h) sits on top of the stack.
-        children.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort descending so the best (lowest h) child is on top of the stack.
+        children.sort_unstable_by(|a, b|
+            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+        );
 
         for (_, new_state, new_hash, _from, _to) in children {
             stack.push((new_state, new_hash));
@@ -215,15 +282,13 @@ pub fn global_dfs_search(
     initial: GameState,
     stop: Arc<AtomicBool>,
 ) -> (SearchStatus, BestPartial) {
-    // Trivial cases before spinning up threads.
     if initial.is_goal() {
         return (SearchStatus::Solved(vec![]), BestPartial::default());
     }
 
     let num_threads = rayon::current_num_threads();
 
-    // Generate K-move prefixes for initial work distribution.
-    // Try increasing depths until we have enough partitions to keep all threads busy.
+    // Generate K-move prefixes for work distribution.
     let mut prefixes: Vec<Vec<(usize, usize)>> = Vec::new();
     for depth in 2..=6 {
         prefixes = crate::chunked_dfs::generate_prefixes(&initial, depth);
@@ -231,63 +296,79 @@ pub fn global_dfs_search(
             break;
         }
     }
-
     if prefixes.is_empty() {
         return (SearchStatus::NoSolution, BestPartial::default());
     }
 
-    // Shared visited map — root state inserted with sentinel parent.
-    let visited: Arc<DashMap<u64, (u64, u8, u8)>> = Arc::new(DashMap::new());
-    let initial_hash = hash_state(&initial);
-    visited.insert(initial_hash, (0, 255, 255));
+    // Allocate disk file paths upfront: [0] = coordinator, [1..] = workers.
+    let all_disk_paths: Vec<PathBuf> = (0..=num_threads)
+        .map(disk_path)
+        .collect();
 
-    // Build work items: walk each prefix chain, insert intermediate states,
-    // collect the (hash, state) for each partition root.
+    // Coordinator file: initial state + prefix chain intermediates.
+    let mut coord_writer = BufWriter::with_capacity(
+        1 << 20,
+        File::create(&all_disk_paths[0]).expect("failed to create coordinator disk file"),
+    );
+
+    let visited: Arc<DashSet<u64>> = Arc::new(DashSet::new());
+    let initial_hash = hash_state(&initial);
+    visited.insert(initial_hash);
+    write_record(&mut coord_writer, initial_hash, 0, 255, 255); // root sentinel
+
     let work: Vec<(u64, GameState)> = prefixes
         .iter()
-        .filter_map(|p| prepare_partition(&visited, &initial, initial_hash, p))
+        .filter_map(|p| prepare_partition(&visited, &mut coord_writer, &initial, initial_hash, p))
         .collect();
+
+    coord_writer.flush().expect("coordinator flush failed");
 
     let total_partitions = work.len();
     eprintln!(
-        "Global DFS: {} partitions | {} threads | {} initial states in map",
+        "Global DFS: {} partitions | {} threads | {} prefix states | disk: {}",
         total_partitions, num_threads, visited.len(),
+        all_disk_paths[0].display(),
     );
 
     let queue: Arc<Mutex<VecDeque<(u64, GameState)>>> =
         Arc::new(Mutex::new(work.into_iter().collect()));
 
-    let (result_tx, result_rx) = mpsc::channel::<WorkerResult>();
+    let (result_tx, result_rx)      = mpsc::channel::<WorkerResult>();
     let global_best: Arc<Mutex<BestPartial>> = Arc::new(Mutex::new(BestPartial::default()));
     let total_states: Arc<AtomicU64> = Arc::new(AtomicU64::new(visited.len() as u64));
     let exhausted_count: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
 
     std::thread::scope(|s| {
-        for _ in 0..num_threads {
-            let queue       = Arc::clone(&queue);
-            let visited     = Arc::clone(&visited);
-            let stop        = Arc::clone(&stop);
-            let result_tx   = result_tx.clone();
-            let global_best = Arc::clone(&global_best);
-            let total_states = Arc::clone(&total_states);
+        for thread_idx in 0..num_threads {
+            let file_path      = all_disk_paths[thread_idx + 1].clone();
+            let queue          = Arc::clone(&queue);
+            let visited        = Arc::clone(&visited);
+            let stop           = Arc::clone(&stop);
+            let result_tx      = result_tx.clone();
+            let global_best    = Arc::clone(&global_best);
+            let total_states   = Arc::clone(&total_states);
             let exhausted_count = Arc::clone(&exhausted_count);
 
             s.spawn(move || {
+                let mut writer = BufWriter::with_capacity(
+                    WRITE_BUF,
+                    File::create(&file_path).expect("failed to create worker disk file"),
+                );
+
                 loop {
                     if stop.load(Ordering::Relaxed) { break; }
 
                     let item = queue.lock().unwrap().pop_front();
                     let (start_hash, start_state) = match item {
-                        None => break,
+                        None    => break,
                         Some(x) => x,
                     };
 
                     let res = dfs_worker(
                         start_hash, start_state,
-                        &visited, &stop, &total_states,
+                        &visited, &stop, &total_states, &mut writer,
                     );
 
-                    // Merge best partial.
                     global_best.lock().unwrap().merge_from(&res.best_partial);
 
                     if matches!(res.status, WorkerStatus::NoSolution) {
@@ -296,40 +377,63 @@ pub fn global_dfs_search(
 
                     result_tx.send(res).ok();
                 }
+
+                writer.flush().ok(); // ensure all records reach disk
             });
         }
     });
 
     drop(result_tx);
-    eprintln!(); // finish the \r progress line
+    eprintln!(); // end the \r progress line
 
-    // Drain results and determine the final outcome.
-    let global_best = global_best.lock().unwrap().clone();
-    let exhausted = exhausted_count.load(Ordering::Relaxed) as usize;
-    let mut winning: Option<SearchStatus> = None;
+    // Collect results.
+    let global_best  = global_best.lock().unwrap().clone();
+    let exhausted    = exhausted_count.load(Ordering::Relaxed) as usize;
+    let mut winning: Option<WorkerStatus> = None;
     let mut had_interrupt = false;
 
     for res in result_rx {
         match res.status {
-            WorkerStatus::Solved(moves)           if winning.is_none() => {
-                winning = Some(SearchStatus::Solved(moves));
-            }
-            WorkerStatus::UnknownRevealed(moves)  if winning.is_none() => {
-                winning = Some(SearchStatus::UnknownRevealed(moves));
-            }
-            WorkerStatus::BottleUnlocked(moves)   if winning.is_none() => {
-                winning = Some(SearchStatus::BottleUnlocked(moves));
-            }
+            WorkerStatus::Solved { .. }
+            | WorkerStatus::UnknownRevealed { .. }
+            | WorkerStatus::BottleUnlocked { .. }
+                if winning.is_none() => { winning = Some(res.status); }
             WorkerStatus::Stopped => { had_interrupt = true; }
             _ => {}
         }
     }
 
-    if let Some(status) = winning {
-        return (status, global_best);
+    // Reconstruct path from disk (if we have a winner) then clean up.
+    let final_status = match winning {
+        Some(WorkerStatus::Solved { goal_hash }) => {
+            eprintln!("Reconstructing path from disk...");
+            let path = reconstruct_path_from_disk(&all_disk_paths, goal_hash);
+            eprintln!("Path reconstructed: {} moves", path.len());
+            SearchStatus::Solved(path)
+        }
+        Some(WorkerStatus::UnknownRevealed { pre_hash, from, to }) => {
+            let mut path = reconstruct_path_from_disk(&all_disk_paths, pre_hash);
+            path.push((from, to));
+            SearchStatus::UnknownRevealed(path)
+        }
+        Some(WorkerStatus::BottleUnlocked { pre_hash, from, to }) => {
+            let mut path = reconstruct_path_from_disk(&all_disk_paths, pre_hash);
+            path.push((from, to));
+            SearchStatus::BottleUnlocked(path)
+        }
+        _ => {
+            if exhausted == total_partitions && !had_interrupt {
+                SearchStatus::NoSolution
+            } else {
+                SearchStatus::Stopped
+            }
+        }
+    };
+
+    // Delete temp files.
+    for path in &all_disk_paths {
+        let _ = std::fs::remove_file(path);
     }
-    if exhausted == total_partitions && !had_interrupt {
-        return (SearchStatus::NoSolution, global_best);
-    }
-    (SearchStatus::Stopped, global_best)
+
+    (final_status, global_best)
 }
